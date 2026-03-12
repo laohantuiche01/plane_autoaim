@@ -1,0 +1,9 @@
+# ROS 2 workspaces
+build/
+install/
+log/
+
+# CLion / IntelliJ
+.idea/
+cmake-build-*/
+compile_commands.json
