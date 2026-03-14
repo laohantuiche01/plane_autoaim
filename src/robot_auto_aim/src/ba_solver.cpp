@@ -69,7 +69,7 @@ namespace robot_auto_aim
 
         // Get the pitch angle of the armor
         double armor_pitch =
-            armor.number == "outpost" ? -FIFTTEN_DEGREE_RAD : FIFTTEN_DEGREE_RAD;
+            armor.number == "outpost" ? -FIFTEEN_DEGREE_RAD : FIFTEEN_DEGREE_RAD;
         Sophus::SO3d R_pitch = Sophus::SO3d::exp(Eigen::Vector3d(0, armor_pitch, 0));
 
         // Essential coordinate system transformation

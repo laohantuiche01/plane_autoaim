@@ -189,7 +189,7 @@ void ArmorDetectorNode::imageCallback(sensor_msgs::msg::Image::ConstSharedPtr im
     if (debug_) {
         marker_array_.markers.clear();
         armor_marker_.id = 0;
-        text_marker_.id = 0;
+        text_marker_.id = 100;
         armor_marker_.header = text_marker_.header = armors_msg_.header;
         
         for (const auto & armor : armors_msg_.armors) {
@@ -202,7 +202,7 @@ void ArmorDetectorNode::imageCallback(sensor_msgs::msg::Image::ConstSharedPtr im
             marker_array_.markers.emplace_back(armor_marker_);
             marker_array_.markers.emplace_back(text_marker_);
         }
-        publishMarkers();
+        marker_pub_->publish(marker_array_);
     }
 
     armors_pub_->publish(armors_msg_);
@@ -339,14 +339,6 @@ void ArmorDetectorNode::destroyDebugPublishers()
     binary_img_pub_.reset();
     number_img_pub_.reset();
     result_img_pub_.reset();
-}
-
-void ArmorDetectorNode::publishMarkers() noexcept
-{
-    using Marker = visualization_msgs::msg::Marker;
-    armor_marker_.action = armors_msg_.armors.empty() ? Marker::DELETEALL : Marker::ADD;
-    marker_array_.markers.emplace_back(armor_marker_);
-    marker_pub_->publish(marker_array_);
 }
 
 }  // namespace robot_auto_aim

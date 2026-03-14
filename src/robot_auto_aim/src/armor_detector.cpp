@@ -277,7 +277,7 @@ void Detector::drawResults(cv::Mat &img) const noexcept {
   // Show numbers and confidence
   for (const auto &armor : armors_) {
     std::string text =
-      fmt::format("{} {}", armorTypeToString(armor.type), armor.classfication_result);
+      fmt::format("{} {}", armorTypeToString(armor.type), armor.classification_result);
     cv::putText(
       img, text, armor.left_light.top, cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 255), 2);
   }

@@ -41,7 +41,6 @@ private:
 
     std::unique_ptr<robot_auto_aim::Detector> initDetector();
     std::vector<robot_auto_aim::Armor> detectArmors(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg);
-    void publishMarkers() noexcept;
 
     rcl_interfaces::msg::SetParametersResult onSetParameters(std::vector<rclcpp::Parameter> parameters);
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_handle_;

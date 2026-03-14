@@ -40,7 +40,7 @@ constexpr double LARGE_ARMOR_WIDTH = 225.0 / 1000.0;
 constexpr double LARGE_ARMOR_HEIGHT = 57.0 / 1000.0; // 55
 
 // 15 degree in rad
-constexpr double FIFTTEN_DEGREE_RAD = 15 * CV_PI / 180;
+constexpr double FIFTEEN_DEGREE_RAD = 15 * CV_PI / 180;
 
 // Armor type
 enum class ArmorType { SMALL, LARGE, INVALID };
@@ -153,7 +153,7 @@ struct Armor {
   cv::Mat number_img;
   std::string number;
   float confidence;
-  std::string classfication_result;
+  std::string classification_result;
 };
 
 }  // namespace robot_auto_aim
