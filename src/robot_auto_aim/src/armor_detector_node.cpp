@@ -195,6 +195,14 @@ void ArmorDetectorNode::imageCallback(sensor_msgs::msg::Image::ConstSharedPtr im
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "ArmorPoseEstimator not initialized yet!");
     }
 
+    if (!armors_msg_.armors.empty()) {
+        std::string armor_types;
+        for (const auto & armor : armors_msg_.armors) {
+            armor_types += armor.number + " ";
+        }
+        RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Detected armors: %s", armor_types.c_str());
+    }
+
     if (debug_) {
         marker_array_.markers.clear();
         armor_marker_.id = 0;
