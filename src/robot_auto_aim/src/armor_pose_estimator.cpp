@@ -36,14 +36,12 @@ namespace robot_auto_aim
             camera_info->k,
             camera_info->d,
             Eigen::Vector3d(camera_info->roi.x_offset, camera_info->roi.y_offset, 0));
-
-        R_gimbal_camera_ = Eigen::Matrix3d::Identity();
-        R_gimbal_camera_ << 0, 0, 1, -1, 0, 0, 0, -1, 0;
     }
 
     std::vector<robot_interfaces::msg::Armor>
     ArmorPoseEstimator::extractArmorPoses(const std::vector<Armor>& armors,
-                                          Eigen::Matrix3d R_imu_camera)
+                                          Eigen::Matrix3d R_imu_camera,
+                                          Eigen::Matrix3d R_gimbal_camera)
     {
         std::vector<robot_interfaces::msg::Armor> armors_msg;
 
@@ -56,7 +54,7 @@ namespace robot_auto_aim
                 armor.landmarks(), rvecs, tvecs,
                 (armor.type == ArmorType::SMALL ? "small" : "large")))
             {
-                //sortPnPResult(armor, rvecs, tvecs);
+                //sortPnPResult(armor, rvecs, tvecs, R_gimbal_camera);
                 cv::Mat rmat;
                 cv::Rodrigues(rvecs[0], rmat);
 
@@ -64,7 +62,7 @@ namespace robot_auto_aim
                 Eigen::Vector3d t = robot_utils::cvToEigenVec(tvecs[0]);
 
                 double armor_roll =
-                    rotationMatrixToRPY(R_gimbal_camera_ * R)[0] * 180 / M_PI;
+                    rotationMatrixToRPY(R_gimbal_camera * R)[0] * 180 / M_PI;
 
                 if (use_ba_ && armor_roll < 15)
                 {
@@ -118,7 +116,8 @@ namespace robot_auto_aim
 
     void ArmorPoseEstimator::sortPnPResult(const Armor& armor,
                                            std::vector<cv::Mat>& rvecs,
-                                           std::vector<cv::Mat>& tvecs) const
+                                           std::vector<cv::Mat>& tvecs,
+                                           const Eigen::Matrix3d& R_gimbal_camera) const
     {
         constexpr float PROJECT_ERR_THRES = 3.0;
 
@@ -138,8 +137,8 @@ namespace robot_auto_aim
         Eigen::Matrix3d R2 = robot_utils::cvToEigen(R2_cv);
 
         // 计算云台系下装甲板的RPY角
-        auto rpy1 = rotationMatrixToRPY(R_gimbal_camera_ * R1);
-        auto rpy2 = rotationMatrixToRPY(R_gimbal_camera_ * R2);
+        auto rpy1 = rotationMatrixToRPY(R_gimbal_camera * R1);
+        auto rpy2 = rotationMatrixToRPY(R_gimbal_camera * R2);
 
         std::string coord_frame_name =
             (armor.type == ArmorType::SMALL ? "small" : "large");

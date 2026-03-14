@@ -19,6 +19,7 @@
 #include <opencv2/imgproc.hpp>
 
 #include "robot_utils/url_resolver.hpp"
+#include "robot_utils/math_utils.hpp"
 
 namespace robot_auto_aim {
 
@@ -157,18 +158,26 @@ CallbackReturn ArmorDetectorNode::on_shutdown(const rclcpp_lifecycle::State & /*
 
 void ArmorDetectorNode::imageCallback(sensor_msgs::msg::Image::ConstSharedPtr img_msg)
 {
+    Eigen::Matrix3d R_gimbal_camera = Eigen::Matrix3d::Identity();
     try {
         rclcpp::Time target_time = img_msg->header.stamp;
-        auto odom_to_gimbal = tf2_buffer_->lookupTransform(
+        auto odom_to_camera = tf2_buffer_->lookupTransform(
             odom_frame_, img_msg->header.frame_id, target_time,
             rclcpp::Duration::from_seconds(0.01));
-        auto msg_q = odom_to_gimbal.transform.rotation;
+        auto msg_q = odom_to_camera.transform.rotation;
         tf2::Quaternion tf_q;
         tf2::fromMsg(msg_q, tf_q);
         tf2::Matrix3x3 tf2_matrix(tf_q);
-        imu_to_camera_ << tf2_matrix.getRow(0)[0], tf2_matrix.getRow(0)[1], tf2_matrix.getRow(0)[2],
-                          tf2_matrix.getRow(1)[0], tf2_matrix.getRow(1)[1], tf2_matrix.getRow(1)[2],
-                          tf2_matrix.getRow(2)[0], tf2_matrix.getRow(2)[1], tf2_matrix.getRow(2)[2];
+        imu_to_camera_ = robot_utils::tf2ToEigen(tf2_matrix);
+
+        auto gimbal_to_camera = tf2_buffer_->lookupTransform(
+            "gimbal_link", img_msg->header.frame_id, target_time,
+            rclcpp::Duration::from_seconds(0.01));
+        auto msg_q_gimbal = gimbal_to_camera.transform.rotation;
+        tf2::Quaternion tf_q_gimbal;
+        tf2::fromMsg(msg_q_gimbal, tf_q_gimbal);
+        tf2::Matrix3x3 tf2_matrix_gimbal(tf_q_gimbal);
+        R_gimbal_camera = robot_utils::tf2ToEigen(tf2_matrix_gimbal);
     } catch (const tf2::TransformException & ex) {
         RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 1000, 
             "Something wrong when lookUpTransform: %s", ex.what());
@@ -181,7 +190,7 @@ void ArmorDetectorNode::imageCallback(sensor_msgs::msg::Image::ConstSharedPtr im
     armors_msg_.armors.clear();
 
     if (armor_pose_estimator_ != nullptr) {
-        armors_msg_.armors = armor_pose_estimator_->extractArmorPoses(armors, imu_to_camera_);
+        armors_msg_.armors = armor_pose_estimator_->extractArmorPoses(armors, imu_to_camera_, R_gimbal_camera);
     } else {
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "ArmorPoseEstimator not initialized yet!");
     }

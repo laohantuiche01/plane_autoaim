@@ -9,6 +9,7 @@ find_package(ament_cmake_auto REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(tf2 REQUIRED)
 
 ament_auto_find_build_dependencies()
 
@@ -30,6 +31,6 @@ target_link_libraries(${PROJECT_NAME}
 target_compile_features(${PROJECT_NAME} PUBLIC c_std_99 cxx_std_20)
 
 ament_export_include_directories(${EIGEN3_INCLUDE_DIRS})
-ament_export_dependencies(OpenCV Eigen3)
+ament_export_dependencies(OpenCV Eigen3 tf2)
 
 ament_auto_package(USE_SCOPED_HEADER_INSTALL_DIR)

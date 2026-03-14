@@ -41,7 +41,8 @@ namespace robot_auto_aim
         explicit ArmorPoseEstimator(sensor_msgs::msg::CameraInfo::SharedPtr camera_info);
 
         std::vector<robot_interfaces::msg::Armor> extractArmorPoses(const std::vector<Armor>& armors,
-                                                                 Eigen::Matrix3d R_imu_camera);
+                                                                 Eigen::Matrix3d R_imu_camera,
+                                                                 Eigen::Matrix3d R_gimbal_camera);
 
         void enableBA(bool enable) { use_ba_ = enable; }
 
@@ -50,14 +51,12 @@ namespace robot_auto_aim
     private:
         // Select the best PnP solution according to the armor's direction in image, only available for SOLVEPNP_IPPE
         void sortPnPResult(const Armor& armor, std::vector<cv::Mat>& rvecs,
-                           std::vector<cv::Mat>& tvecs) const;
+                           std::vector<cv::Mat>& tvecs, const Eigen::Matrix3d& R_gimbal_camera) const;
 
         // Convert a rotation matrix to RPY
         static Eigen::Vector3d rotationMatrixToRPY(const Eigen::Matrix3d& R);
 
         bool use_ba_;
-
-        Eigen::Matrix3d R_gimbal_camera_;
 
         std::unique_ptr<BaSolver> ba_solver_;
         std::unique_ptr<robot_utils::PnPSolver> pnp_solver_;

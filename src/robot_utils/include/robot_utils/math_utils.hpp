@@ -5,8 +5,17 @@
 
 #include <opencv2/core.hpp>
 #include <Eigen/Dense>
+#include <tf2/LinearMath/Matrix3x3.h>
 
 namespace robot_utils {
+
+inline Eigen::Matrix3d tf2ToEigen(const tf2::Matrix3x3& tf2_matrix) {
+    Eigen::Matrix3d res;
+    res << tf2_matrix.getRow(0)[0], tf2_matrix.getRow(0)[1], tf2_matrix.getRow(0)[2],
+           tf2_matrix.getRow(1)[0], tf2_matrix.getRow(1)[1], tf2_matrix.getRow(1)[2],
+           tf2_matrix.getRow(2)[0], tf2_matrix.getRow(2)[1], tf2_matrix.getRow(2)[2];
+    return res;
+}
 
 inline Eigen::Matrix3d cvToEigen(const cv::Mat& mat) {
     Eigen::Matrix3d res;
