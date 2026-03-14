@@ -23,6 +23,7 @@ HikCameraDriver::HikCameraDriver(const rclcpp::NodeOptions &options) : Node("cam
     declare_parameter("exposure_time", 1500.0);
     declare_parameter("gain", 15.0);
     declare_parameter("frame_rate", 250.0);
+    declare_parameter("delay_ratio", 0.0);
     declare_parameter("width", 1440);
     declare_parameter("height", 520);
     declare_parameter("offset_x", 0);
@@ -38,6 +39,7 @@ HikCameraDriver::HikCameraDriver(const rclcpp::NodeOptions &options) : Node("cam
     get_parameter("k", k);
     get_parameter("d", d);
     get_parameter("frame_rate", frame_rate_);
+    get_parameter("delay_ratio", delay_ratio_);
     get_parameter("width", width_);
     get_parameter("height", height_);
     get_parameter("offset_x", offset_x_);
@@ -54,7 +56,7 @@ HikCameraDriver::HikCameraDriver(const rclcpp::NodeOptions &options) : Node("cam
     setTriggerModeAndPixelFormat();
     startGrabbing();
     setParams(get_parameters(
-        {"exposure_time", "gain", "frame_rate", "width", "height", "offset_x", "offset_y", "bit_depth"}));
+        {"exposure_time", "gain", "frame_rate", "delay_ratio", "width", "height", "offset_x", "offset_y", "bit_depth"}));
 }
 
 void HikCameraDriver::PrintDeviceInfo(MV_CC_DEVICE_INFO *pstMVDevInfo) {
@@ -169,7 +171,7 @@ void HikCameraDriver::cameraCallback() {
     image->width = frameOut.stFrameInfo.nWidth;
     image->step = frameOut.stFrameInfo.nWidth * 3;
     image->encoding = "bgr8";
-    image->header.stamp = t2;
+    image->header.stamp = t2 - rclcpp::Duration::from_seconds((t2 - t1).seconds() * delay_ratio_);
     image->header.frame_id = "camera_optical_frame";
     imagePublisher->publish(std::move(image));
     errorCode = MV_CC_FreeImageBuffer(handle, &frameOut);
@@ -222,6 +224,8 @@ rcl_interfaces::msg::SetParametersResult HikCameraDriver::setParams(const std::v
             offset_x_ = parameter.as_int();
         } else if (name == "offset_y") {
             offset_y_ = parameter.as_int();
+        } else if (name == "delay_ratio") {
+            delay_ratio_ = parameter.as_double();
         } else if (name == "frame_rate") {
             frame_rate_ = parameter.as_double();
             timer->cancel();

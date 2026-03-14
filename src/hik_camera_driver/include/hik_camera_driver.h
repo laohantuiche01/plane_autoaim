@@ -24,6 +24,7 @@ private:
     std::vector<double> k;
     std::vector<double> d;
     double frame_rate_;
+    double delay_ratio_;
     int width_;
     int height_;
     int offset_x_;
