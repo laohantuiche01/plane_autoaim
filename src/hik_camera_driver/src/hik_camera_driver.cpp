@@ -5,17 +5,18 @@
 #include "hik_camera_driver.h"
 
 std::map<std::string, const char *> HikCameraDriver::realName = {
-        {"exposure_time", "ExposureTime"},
-        {"gain",          "Gain"},
-        {"frame_rate",    "AcquisitionFrameRate"},
-        {"width",         "Width"},
-        {"height",        "Height"},
-        {"offset_x",      "OffsetX"},
-        {"offset_y",      "OffsetY"},
-        {"bit_depth",     "ADCBitDepth"}
+    {"exposure_time", "ExposureTime"},
+    {"gain", "Gain"},
+    {"frame_rate", "AcquisitionFrameRate"},
+    {"width", "Width"},
+    {"height", "Height"},
+    {"offset_x", "OffsetX"},
+    {"offset_y", "OffsetY"},
+    {"bit_depth", "ADCBitDepth"}
 };
 
-HikCameraDriver::HikCameraDriver() : HikCameraDriver(rclcpp::NodeOptions()) {}
+HikCameraDriver::HikCameraDriver() : HikCameraDriver(rclcpp::NodeOptions()) {
+}
 
 HikCameraDriver::HikCameraDriver(const rclcpp::NodeOptions &options) : Node("camera_node", options) {
     using namespace std::chrono_literals;
@@ -28,29 +29,32 @@ HikCameraDriver::HikCameraDriver(const rclcpp::NodeOptions &options) : Node("cam
     declare_parameter("offset_y", 280);
     declare_parameter("bit_depth", "Bits_8");
     declare_parameter("k", std::vector<double>({
-                                                       4637.68, 0, 720,
-                                                       0, 4637.68, 540,
-                                                       0, 0, 1
-                                               }));
+                          4637.68, 0, 720,
+                          0, 4637.68, 540,
+                          0, 0, 1
+                      }));
     declare_parameter("d", std::vector<double>({0, 0, 0, 0, 0}));
 
     get_parameter("k", k);
     get_parameter("d", d);
-
+    get_parameter("frame_rate", frame_rate_);
+    get_parameter("width", width_);
+    get_parameter("height", height_);
+    get_parameter("offset_x", offset_x_);
+    get_parameter("offset_y", offset_y_);
 
     imagePublisher = create_publisher<RosImage>("image_raw", 10);
-    capturedPublisher = imagePublisher;
     cameraInfoPublisher = create_publisher<CameraInfo>("camera_info", 1);
-    timer = create_wall_timer(1s / get_parameter("frame_rate").as_double(),
+    timer = create_wall_timer(std::chrono::duration<double>(1.0 / frame_rate_),
                               std::bind(&HikCameraDriver::cameraCallback, this));
     onSetParametersCallbackHandle = add_on_set_parameters_callback(
-            std::bind(&HikCameraDriver::setParams, this, std::placeholders::_1));
+        std::bind(&HikCameraDriver::setParams, this, std::placeholders::_1));
     enumerateAndSelectDevice();
     openDevice();
     setTriggerModeAndPixelFormat();
     startGrabbing();
     setParams(get_parameters(
-            {"exposure_time", "gain", "frame_rate", "width", "height", "offset_x", "offset_y", "bit_depth"}));
+        {"exposure_time", "gain", "frame_rate", "width", "height", "offset_x", "offset_y", "bit_depth"}));
 }
 
 void HikCameraDriver::PrintDeviceInfo(MV_CC_DEVICE_INFO *pstMVDevInfo) {
@@ -143,35 +147,31 @@ void HikCameraDriver::cameraCallback() {
     static rclcpp::Time start = now();
     auto lastStart = start;
     start = now();
-    auto publisher = capturedPublisher.lock();
-    if (!publisher) {
-        return;
-    }
     RosImage::UniquePtr image = std::make_unique<RosImage>();
     MV_FRAME_OUT frameOut{};
     auto t1 = now();
     CameraErrorCode errorCode = MV_CC_GetImageBuffer(handle, &frameOut, 1000);
     auto t2 = now();
-    RCLCPP_DEBUG(get_logger(), "%f", (t2 - t1).seconds());
+    RCLCPP_DEBUG(get_logger(), "Frame delta time: %f", (t2 - t1).seconds());
     if (errorCode != MV_OK) {
         RCLCPP_FATAL(get_logger(), "Getting image buffer failed! nRet [0x%x]", errorCode);
         exit(errorCode);
     }
-    
+
     cv::Mat bgrImage;
     cv::Mat bayerImage(frameOut.stFrameInfo.nHeight, frameOut.stFrameInfo.nWidth, CV_8UC1, frameOut.pBufAddr);
     cv::cvtColor(bayerImage, bgrImage, cv::COLOR_BayerRG2RGB);
     image->data = std::vector<unsigned char>(bgrImage.data, bgrImage.data +
-                                                                frameOut.stFrameInfo.nWidth *
-                                                                frameOut.stFrameInfo.nHeight * 3);
+                                                            frameOut.stFrameInfo.nWidth *
+                                                            frameOut.stFrameInfo.nHeight * 3);
 
     image->height = frameOut.stFrameInfo.nHeight;
     image->width = frameOut.stFrameInfo.nWidth;
-    image->step = frameOut.stFrameInfo.nWidth*3;
+    image->step = frameOut.stFrameInfo.nWidth * 3;
     image->encoding = "bgr8";
     image->header.stamp = t2;
     image->header.frame_id = "camera_optical_frame";
-    publisher->publish(std::move(image));
+    imagePublisher->publish(std::move(image));
     errorCode = MV_CC_FreeImageBuffer(handle, &frameOut);
     if (errorCode != MV_OK) {
         RCLCPP_FATAL(get_logger(), "Getting image buffer failed! nRet [0x%x]", errorCode);
@@ -183,13 +183,13 @@ void HikCameraDriver::cameraCallback() {
     cameraInfo.d = d;
     std::array<double, 9> roiK{};
     memcpy(roiK.data(), k.data(), 9 * sizeof(double));
-    roiK[2] -= (double) get_parameter("offset_x").as_int();
-    roiK[5] -= (double) get_parameter("offset_y").as_int();
+    roiK[2] -= (double) offset_x_;
+    roiK[5] -= (double) offset_y_;
     cameraInfo.k = roiK;
-    cameraInfo.roi.x_offset = (double) get_parameter("offset_x").as_int();
-    cameraInfo.roi.y_offset = (double) get_parameter("offset_y").as_int();
-    cameraInfo.roi.height = (double) get_parameter("height").as_int();
-    cameraInfo.roi.width = (double) get_parameter("width").as_int();
+    cameraInfo.roi.x_offset = offset_x_;
+    cameraInfo.roi.y_offset = offset_y_;
+    cameraInfo.roi.height = height_;
+    cameraInfo.roi.width = width_;
     cameraInfoPublisher->publish(cameraInfo);
 
     static struct Count {
@@ -206,20 +206,44 @@ rcl_interfaces::msg::SetParametersResult HikCameraDriver::setParams(const std::v
     stopGrabbing();
     bool success = true;
     for (auto &parameter: parameters) {
-        switch (parameter.get_type()) {
-            case rclcpp::PARAMETER_INTEGER:
-                success &= setCameraValue(realName[parameter.get_name()], parameter.as_int());
-                break;
-            case rclcpp::PARAMETER_DOUBLE:
-                success &= setCameraValue(realName[parameter.get_name()], (float) parameter.as_double());
-                break;
-            case rclcpp::PARAMETER_STRING:
-                success &= setCameraValue(realName[parameter.get_name()], parameter.as_string().c_str());
-                break;
-            default:
-                break;
+        auto name = parameter.get_name();
+
+        if (name == "k") {
+            k = parameter.as_double_array();
+            continue;
+        } else if (name == "d") {
+            d = parameter.as_double_array();
+            continue;
+        } else if (name == "width") {
+            width_ = parameter.as_int();
+        } else if (name == "height") {
+            height_ = parameter.as_int();
+        } else if (name == "offset_x") {
+            offset_x_ = parameter.as_int();
+        } else if (name == "offset_y") {
+            offset_y_ = parameter.as_int();
+        } else if (name == "frame_rate") {
+            frame_rate_ = parameter.as_double();
+            timer->cancel();
+            timer = create_wall_timer(std::chrono::duration<double>(1.0 / frame_rate_),
+                                      std::bind(&HikCameraDriver::cameraCallback, this));
         }
 
+        if (realName.count(name)) {
+            switch (parameter.get_type()) {
+                case rclcpp::PARAMETER_INTEGER:
+                    success &= setCameraValue(realName[name], parameter.as_int());
+                    break;
+                case rclcpp::PARAMETER_DOUBLE:
+                    success &= setCameraValue(realName[name], (float) parameter.as_double());
+                    break;
+                case rclcpp::PARAMETER_STRING:
+                    success &= setCameraValue(realName[name], parameter.as_string().c_str());
+                    break;
+                default:
+                    break;
+            }
+        }
     }
     startGrabbing();
     return rcl_interfaces::msg::SetParametersResult().set__successful(success);

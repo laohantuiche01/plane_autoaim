@@ -23,9 +23,13 @@ private:
 
     std::vector<double> k;
     std::vector<double> d;
+    double frame_rate_;
+    int width_;
+    int height_;
+    int offset_x_;
+    int offset_y_;
     CameraHandle handle = nullptr;
     rclcpp::Publisher<RosImage>::SharedPtr imagePublisher;
-    std::weak_ptr<std::remove_pointer<decltype(imagePublisher.get())>::type> capturedPublisher;
     rclcpp::Publisher<CameraInfo>::SharedPtr cameraInfoPublisher;
     rclcpp::TimerBase::SharedPtr timer;
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr onSetParametersCallbackHandle;
