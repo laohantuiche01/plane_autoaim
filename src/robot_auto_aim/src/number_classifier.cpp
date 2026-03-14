@@ -92,7 +92,7 @@ cv::Mat NumberClassifier::extractNumber(const cv::Mat &src, const Armor &armor) 
   return number_image;
 }
 
-void NumberClassifier::classify(const cv::Mat &src, Armor &armor) noexcept {
+void NumberClassifier::classify(const cv::Mat &, Armor &armor) noexcept {
   // Normalize
   cv::Mat input = armor.number_img / 255.0;
 

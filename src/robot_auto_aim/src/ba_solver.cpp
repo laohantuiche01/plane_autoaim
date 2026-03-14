@@ -38,7 +38,7 @@ namespace robot_auto_aim
     G2O_USE_OPTIMIZATION_LIBRARY(dense)
 
     BaSolver::BaSolver(std::array<double, 9>& camera_matrix,
-                       std::vector<double>& dist_coeffs,
+                       std::vector<double>&,
                        const Eigen::Vector3d& offset_xy):offset_xy_(offset_xy)
     {
         K_ = Eigen::Matrix3d::Identity();
