@@ -158,7 +158,7 @@ CallbackReturn ArmorDetectorNode::on_shutdown(const rclcpp_lifecycle::State & /*
 
 void ArmorDetectorNode::imageCallback(sensor_msgs::msg::Image::ConstSharedPtr img_msg)
 {
-    Eigen::Matrix3d R_gimbal_camera = Eigen::Matrix3d::Identity();
+    Eigen::Matrix3d R_gimbal_camera;
     try {
         rclcpp::Time target_time = img_msg->header.stamp;
         auto odom_to_camera = tf2_buffer_->lookupTransform(
