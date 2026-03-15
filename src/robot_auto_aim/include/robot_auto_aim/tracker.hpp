@@ -41,7 +41,7 @@ public:
                       double q_yaw, double q_v_yaw, double q_geo,
                       double r_x, double r_y, double r_z, double r_yaw, 
                       double r_yaw_adaptive_factor,
-                      bool adaptive_tracking, double r_alpha,
+                      bool adaptive_tracking, double q_alpha,
                       double dist_scale_coeff, double z_scale_coeff);
     
     void updateUKFParams(double alpha, double beta, double kappa);
@@ -73,7 +73,7 @@ private:
     double r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_;
     double dist_scale_coeff_, z_scale_coeff_;
     bool adaptive_tracking_;
-    double r_alpha_;
+    double q_alpha_;
     double ukf_alpha_, ukf_beta_, ukf_kappa_;
 };
 

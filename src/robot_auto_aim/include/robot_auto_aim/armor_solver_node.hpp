@@ -48,7 +48,7 @@ private:
     double r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_;
     double dist_scale_coeff_, z_scale_coeff_;
     bool adaptive_tracking_;
-    double r_alpha_;
+    double q_alpha_;
     double ukf_alpha_, ukf_beta_, ukf_kappa_;
     
     // Timer

@@ -40,7 +40,7 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
     
     // Adaptive Tracking Params
     adaptive_tracking_ = declare_parameter("adaptive_tracking", false);
-    r_alpha_ = declare_parameter("r_alpha", 0.1);
+    q_alpha_ = declare_parameter("q_alpha", 0.1);
     
     // UKF Hyperparams
     ukf_alpha_ = declare_parameter("ukf_alpha", 0.001);
@@ -76,7 +76,7 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
                 else if (param.get_name() == "dist_scale_coeff") dist_scale_coeff_ = param.as_double();
                 else if (param.get_name() == "z_scale_coeff") z_scale_coeff_ = param.as_double();
                 else if (param.get_name() == "adaptive_tracking") adaptive_tracking_ = param.as_bool();
-                else if (param.get_name() == "r_alpha") r_alpha_ = param.as_double();
+                else if (param.get_name() == "q_alpha") q_alpha_ = param.as_double();
                 else if (param.get_name() == "ukf_alpha") ukf_alpha_ = param.as_double();
                 else if (param.get_name() == "ukf_beta") ukf_beta_ = param.as_double();
                 else if (param.get_name() == "ukf_kappa") ukf_kappa_ = param.as_double();
@@ -290,7 +290,7 @@ void ArmorSolverNode::publishMarkers(const std::shared_ptr<Target>& target, cons
 }
 
 void ArmorSolverNode::updateTrackerParams() {
-    tracker_->updateParams(q_x_, q_y_, q_z_, q_vx_, q_vy_, q_vz_, q_yaw_, q_v_yaw_, q_geo_, r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_, adaptive_tracking_, r_alpha_, dist_scale_coeff_, z_scale_coeff_);
+    tracker_->updateParams(q_x_, q_y_, q_z_, q_vx_, q_vy_, q_vz_, q_yaw_, q_v_yaw_, q_geo_, r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_, adaptive_tracking_, q_alpha_, dist_scale_coeff_, z_scale_coeff_);
 }
 
 } // namespace robot_auto_aim

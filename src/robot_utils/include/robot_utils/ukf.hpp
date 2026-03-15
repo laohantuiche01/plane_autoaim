@@ -183,20 +183,22 @@ public:
     }
 
     /**
-     * @brief Adaptive Update (Sage-Husa like) - dynamically adjusts the R matrix based on innovations.
-     * Useful when sensor noise is dynamic (e.g., motion blur degrades vision).
+     * @brief Adaptive Update (Sage-Husa like) - dynamically adjusts the Q matrix based on innovations.
+     * Useful when target maneuvers unpredictably.
      * 
-     * @param R_adaptive Passed by reference, it will be updated in-place!
-     * @param alpha Learning rate for R (e.g., 0.1 ~ 0.3)
+     * @param Q_adaptive Passed by reference, it will be updated in-place!
+     * @param alpha Learning rate for Q (e.g., 0.1 ~ 0.3)
      */
     template <int M>
-    bool updateAdaptive(const Eigen::Matrix<double, M, 1>& z,
-                        const std::function<Eigen::Matrix<double, M, 1>(const VectorX&)>& h,
-                        Eigen::Matrix<double, M, M>& R_adaptive,
-                        double alpha = 0.2,
-                        const std::function<void(Eigen::Matrix<double, M, 1>&)>& normalize_meas_diff = nullptr,
-                        const StateNormalizeFunc& normalize_state_diff = nullptr,
-                        double mahalanobis_thresh = -1.0) {
+    bool updateAdaptiveQ(const Eigen::Matrix<double, M, 1>& z,
+                         const std::function<Eigen::Matrix<double, M, 1>(const VectorX&)>& h,
+                         const Eigen::Matrix<double, M, M>& R,
+                         MatrixX& Q_adaptive,
+                         const MatrixX& Q_base,
+                         double alpha = 0.2,
+                         const std::function<void(Eigen::Matrix<double, M, 1>&)>& normalize_meas_diff = nullptr,
+                         const StateNormalizeFunc& normalize_state_diff = nullptr,
+                         double mahalanobis_thresh = -1.0) {
         
         using VectorZ = Eigen::Matrix<double, M, 1>;
         using MatrixZ = Eigen::Matrix<double, M, M>;
@@ -214,7 +216,7 @@ public:
             z_pred += weights_m_(i) * Z_sigmas.col(i);
         }
         
-        MatrixZ S_no_R = MatrixZ::Zero();
+        MatrixZ S = MatrixZ::Zero();
         MatrixXZ Tc = MatrixXZ::Zero();
         
         for (int i = 0; i < 2 * N + 1; ++i) {
@@ -224,11 +226,11 @@ public:
             VectorX x_diff_sigma = predicted_sigmas_.col(i) - x_;
             if (normalize_state_diff) normalize_state_diff(x_diff_sigma);
             
-            S_no_R += weights_c_(i) * z_diff_sigma * z_diff_sigma.transpose();
+            S += weights_c_(i) * z_diff_sigma * z_diff_sigma.transpose();
             Tc += weights_c_(i) * x_diff_sigma * z_diff_sigma.transpose();
         }
         
-        MatrixZ S = S_no_R + R_adaptive;
+        S += R;
         
         VectorZ z_diff = z - z_pred;
         if (normalize_meas_diff) normalize_meas_diff(z_diff);
@@ -240,21 +242,22 @@ public:
             }
         }
         
-        // --- Adaptive R Estimation ---
-        // R_new = (1-alpha)*R_old + alpha*(z_diff * z_diff^T - S_no_R)
-        MatrixZ R_est = z_diff * z_diff.transpose() - S_no_R;
+        MatrixXZ K = Tc * S.inverse();
         
-        // Constrain diagonal elements to be strictly positive to ensure numeric stability
-        for (int i = 0; i < M; ++i) {
-            R_est(i, i) = std::max(R_est(i, i), 1e-6);
+        // --- Adaptive Q Estimation ---
+        // Q_new = (1-alpha)*Q_old + alpha*(K * z_diff * z_diff^T * K^T)
+        MatrixX Q_est = K * z_diff * z_diff.transpose() * K.transpose();
+        
+        Q_adaptive = (1.0 - alpha) * Q_adaptive + alpha * Q_est;
+        
+        // Constrain diagonal elements to not fall below the baseline Q to prevent filter sluggishness
+        for (int i = 0; i < N; ++i) {
+            Q_adaptive(i, i) = std::max(Q_adaptive(i, i), Q_base(i, i));
         }
         // Force symmetry
-        R_est = 0.5 * (R_est + R_est.transpose()); 
-        
-        R_adaptive = (1.0 - alpha) * R_adaptive + alpha * R_est;
+        Q_adaptive = 0.5 * (Q_adaptive + Q_adaptive.transpose()); 
         // ------------------------------
         
-        MatrixXZ K = Tc * S.inverse();
         x_ += K * z_diff;
         P_ -= K * S * K.transpose();
         

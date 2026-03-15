@@ -12,7 +12,7 @@ Target::Target()
       q_yaw_(0.01), q_v_yaw_(0.001), q_geo_(0.0001),
       r_x_(0.5), r_y_(0.5), r_z_(0.5), r_yaw_(0.05), r_yaw_adaptive_factor_(50.0),
       dist_scale_coeff_(0.1), z_scale_coeff_(5.0),
-      adaptive_tracking_(false), r_alpha_(0.1) { 
+      adaptive_tracking_(false), q_alpha_(0.1) { 
 }
 
 void Target::init(const TrackerArmor& armor) {
@@ -39,11 +39,12 @@ void Target::init(const TrackerArmor& armor) {
     
     ukf_.init(x0, P0);
     
-    R_adaptive_ = Eigen::Matrix4d::Identity();
-    R_adaptive_(0, 0) = r_x_;
-    R_adaptive_(1, 1) = r_y_;
-    R_adaptive_(2, 2) = r_z_;
-    R_adaptive_(3, 3) = r_yaw_;
+    Q_adaptive_ = Eigen::Matrix<double, STATE_DIM, STATE_DIM>::Zero();
+    Q_adaptive_(0,0) = q_x_; Q_adaptive_(2,2) = q_y_; Q_adaptive_(4,4) = q_z_;
+    Q_adaptive_(1,1) = q_vx_; Q_adaptive_(3,3) = q_vy_; Q_adaptive_(5,5) = q_vz_;
+    Q_adaptive_(6,6) = q_yaw_;
+    Q_adaptive_(7,7) = q_v_yaw_;
+    Q_adaptive_(8,8) = Q_adaptive_(9,9) = Q_adaptive_(10,10) = q_geo_;
     
     last_time_ = armor.timestamp;
     update_count_ = 1;
@@ -73,7 +74,7 @@ void Target::predict(const rclcpp::Time& time) {
         x(6) = std::atan2(std::sin(x(6)), std::cos(x(6)));
     };
     
-    ukf_.predict(f, Q, normalize_yaw);
+    ukf_.predict(f, adaptive_tracking_ ? Q_adaptive_ : Q, normalize_yaw);
     last_time_ = time;
 }
 
@@ -129,8 +130,33 @@ bool Target::update(const TrackerArmor& armor) {
     
     bool success = false;
     if (adaptive_tracking_) {
-        // Sage-Husa will use our geometric R as prior
-        success = ukf_.updateAdaptive<MEAS_DIM>(z, h_func, R_adaptive_, r_alpha_, normalize_meas, normalize_state, 15.0);
+        Eigen::Matrix<double, STATE_DIM, STATE_DIM> Q_base = Eigen::Matrix<double, STATE_DIM, STATE_DIM>::Zero();
+        Q_base(0,0) = q_x_; Q_base(2,2) = q_y_; Q_base(4,4) = q_z_;
+        Q_base(1,1) = q_vx_; Q_base(3,3) = q_vy_; Q_base(5,5) = q_vz_;
+        Q_base(6,6) = q_yaw_;
+        Q_base(7,7) = q_v_yaw_;
+        Q_base(8,8) = Q_base(9,9) = Q_base(10,10) = q_geo_;
+        
+        success = ukf_.updateAdaptiveQ<MEAS_DIM>(z, h_func, R, Q_adaptive_, Q_base, q_alpha_, normalize_meas, normalize_state, 15.0);
+        
+        if (success && (update_count_ % 20 == 0)) {
+            double max_ratio = 1.0;
+            int max_idx = -1;
+            for (int i = 0; i < STATE_DIM; ++i) {
+                if (Q_base(i, i) > 1e-7) {
+                    double ratio = Q_adaptive_(i, i) / Q_base(i, i);
+                    if (ratio > max_ratio) {
+                        max_ratio = ratio;
+                        max_idx = i;
+                    }
+                }
+            }
+            if (max_ratio > 1.5) {
+                RCLCPP_INFO(rclcpp::get_logger("target"), 
+                    "Adaptive Q inflated! Max Ratio: %.2fx at Index: %d (Base: %.6f, Adaptive: %.6f)", 
+                    max_ratio, max_idx, Q_base(max_idx, max_idx), Q_adaptive_(max_idx, max_idx));
+            }
+        }
     } else {
         success = ukf_.update<MEAS_DIM>(z, h_func, R, normalize_meas, normalize_state, 15.0);
     }

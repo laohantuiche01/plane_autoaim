@@ -42,7 +42,7 @@ public:
                       double q_yaw, double q_v_yaw, double q_geo,
                       double r_x, double r_y, double r_z, double r_yaw, 
                       double r_yaw_adaptive_factor,
-                      bool adaptive_tracking, double r_alpha,
+                      bool adaptive_tracking, double q_alpha,
                       double dist_scale_coeff, double z_scale_coeff) {
         q_x_ = q_x; q_y_ = q_y; q_z_ = q_z;
         q_vx_ = q_vx; q_vy_ = q_vy; q_vz_ = q_vz;
@@ -51,7 +51,7 @@ public:
         r_yaw_ = r_yaw;
         r_yaw_adaptive_factor_ = r_yaw_adaptive_factor;
         adaptive_tracking_ = adaptive_tracking;
-        r_alpha_ = r_alpha;
+        q_alpha_ = q_alpha;
         dist_scale_coeff_ = dist_scale_coeff;
         z_scale_coeff_ = z_scale_coeff;
     }
@@ -103,10 +103,10 @@ private:
     double r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_;
     double dist_scale_coeff_, z_scale_coeff_;
     
-    // Adaptive R
+    // Adaptive Q
     bool adaptive_tracking_;
-    double r_alpha_;
-    Eigen::Matrix4d R_adaptive_;
+    double q_alpha_;
+    Eigen::Matrix<double, STATE_DIM, STATE_DIM> Q_adaptive_;
 };
 
 } // namespace robot_auto_aim
