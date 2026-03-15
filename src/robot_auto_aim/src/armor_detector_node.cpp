@@ -64,7 +64,7 @@ CallbackReturn ArmorDetectorNode::on_configure(const rclcpp_lifecycle::State & /
     text_marker_.color.b = 1.0;
     text_marker_.lifetime = rclcpp::Duration::from_seconds(0.1);
 
-    marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("armor_detector/marker", 10);
+    marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("armor_detector/markers", 10);
 
     debug_ = this->declare_parameter("debug", true);
     if (debug_) {
@@ -338,17 +338,16 @@ rcl_interfaces::msg::SetParametersResult ArmorDetectorNode::onSetParameters(std:
 
 void ArmorDetectorNode::createDebugPublishers()
 {
-    lights_data_pub_ = this->create_publisher<robot_interfaces::msg::DebugLights>("armor_detector/debug_lights", 10);
-    armors_data_pub_ = this->create_publisher<robot_interfaces::msg::DebugArmors>("armor_detector/debug_armors", 10);
+    lights_data_pub_ = this->create_publisher<robot_interfaces::msg::DebugLights>("armor_detector/debug_lights", rclcpp::SensorDataQoS());
+    armors_data_pub_ = this->create_publisher<robot_interfaces::msg::DebugArmors>("armor_detector/debug_armors", rclcpp::SensorDataQoS());
 
     this->declare_parameter("armor_detector.result_img.jpeg_quality", 50);
     this->declare_parameter("armor_detector.binary_img.jpeg_quality", 50);
-    
-    binary_img_pub_ = this->create_publisher<sensor_msgs::msg::Image>("armor_detector/binary_img", 10);
-    number_img_pub_ = this->create_publisher<sensor_msgs::msg::Image>("armor_detector/number_img", 10);
-    result_img_pub_ = this->create_publisher<sensor_msgs::msg::Image>("armor_detector/result_img", 10);
-}
 
+    binary_img_pub_ = this->create_publisher<sensor_msgs::msg::Image>("armor_detector/binary_img", rclcpp::SensorDataQoS());
+    number_img_pub_ = this->create_publisher<sensor_msgs::msg::Image>("armor_detector/number_img", rclcpp::SensorDataQoS());
+    result_img_pub_ = this->create_publisher<sensor_msgs::msg::Image>("armor_detector/result_img", rclcpp::SensorDataQoS());
+}
 void ArmorDetectorNode::destroyDebugPublishers()
 {
     lights_data_pub_.reset();

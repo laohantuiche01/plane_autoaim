@@ -29,6 +29,9 @@ ament_auto_add_library(${PROJECT_NAME} SHARED
         src/graph_optimizer.cpp
         src/light_corner_corrector.cpp
         src/number_classifier.cpp
+        src/target.cpp
+        src/tracker.cpp
+        src/armor_solver_node.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -52,16 +55,29 @@ target_link_libraries(${PROJECT_NAME}
 # 1. 注册Component，并分配一个不冲突的可执行文件名称
 rclcpp_components_register_node(${PROJECT_NAME}
         PLUGIN robot_auto_aim::ArmorDetectorNode
-        EXECUTABLE ${PROJECT_NAME}_component_node
+        EXECUTABLE ${PROJECT_NAME}_detector_component_node
+)
+
+rclcpp_components_register_node(${PROJECT_NAME}
+        PLUGIN robot_auto_aim::ArmorSolverNode
+        EXECUTABLE ${PROJECT_NAME}_solver_component_node
 )
 
 # 2. 编译带有main函数的独立可执行节点
 ament_auto_add_executable(armor_detector_node
         src/armor_detector_main.cpp
 )
+target_link_libraries(armor_detector_node ${PROJECT_NAME})
 
-target_link_libraries(armor_detector_node ${PROJECT_NAME}
+ament_auto_add_executable(armor_solver_node
+        src/armor_solver_main.cpp
 )
+target_link_libraries(armor_solver_node ${PROJECT_NAME})
+
+ament_auto_add_executable(auto_aim_node
+        src/auto_aim_main.cpp
+)
+target_link_libraries(auto_aim_node ${PROJECT_NAME})
 
 # Testing
 if (BUILD_TESTING)
@@ -80,4 +96,5 @@ ament_auto_package(
         USE_SCOPED_HEADER_INSTALL_DIR
         INSTALL_TO_SHARE
         model
+        config
 )
