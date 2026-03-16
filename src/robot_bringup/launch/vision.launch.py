@@ -37,7 +37,7 @@ def generate_launch_description():
             # Camera Driver
             ComposableNode(
                 package='hik_camera_driver',
-                plugin='hik_camera::HikCameraNode',
+                plugin='HikCameraDriver',
                 name='hik_camera',
                 parameters=[params_path],
                 extra_arguments=[{'use_intra_process_comms': True}]
