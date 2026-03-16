@@ -65,7 +65,40 @@
 
 ---
 
-## 3. 常见问题排查 (Troubleshooting)
+## 3. ManagerNode (生命周期管理)
+
+该节点负责根据比赛状态（模式切换）自动激活或停用核心算法节点。
+
+### 核心逻辑
+*   **订阅话题**：`/robot/mode` (类型：`robot_interfaces/msg/Mode`)。
+*   **动作**：
+    *   当 `mode == 0` 时：向 `armor_detector` 和 `armor_solver` 发送 `ACTIVATE` 指令。
+    *   当 `mode != 0` 时：向上述节点发送 `DEACTIVATE` 指令。
+*   **参数**：
+    *   `detector_name`: 识别节点的名称（默认 `armor_detector`）。
+    *   `solver_name`: 预测节点的名称（默认 `armor_solver`）。
+
+---
+
+## 4. robot_bringup (一键启动与多机管理)
+
+该包集成了所有配置与启动脚本，支持多机部署与零拷贝通信。
+
+### 启动方式
+使用 `robot_type` 参数切换不同机器的配置：
+```bash
+ros2 launch robot_bringup vision.launch.py robot_type:=sentry
+```
+可用的 `robot_type`: `default`, `sentry`, `infantry_3`, `infantry_4`。
+
+### 核心特性
+1.  **零拷贝通信 (Zero-Copy)**：通过 `ComposableNodeContainer` 将相机、识别、预测、弹道节点打包在同一个进程中，并开启 `use_intra_process_comms`。这使得高分辨率图像在节点间传递时无需经过网络序列化，大幅降低 CPU 开销。
+2.  **自动重启 (Auto-Restart)**：所有核心节点均配置了 `respawn=True`。如果节点因驱动异常或算法崩溃意外退出，Launch 会在 2 秒后自动将其拉起。
+3.  **分机配置管理**：参数存放在 `config/[robot_type]/params.yaml` 下，方便针对每台车的机械差异（如偏置、噪声等）进行独立维护。
+
+---
+
+## 5. 常见问题排查 (Troubleshooting)
 
 ### Q1: 观察到波形中有微小的“阶梯感”或不连续细节？
 *   **对策**：尝试调低 `trajectory.switch_concentration`（如 `10.0`）来平滑装甲板切换。
