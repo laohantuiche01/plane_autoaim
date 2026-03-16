@@ -8,7 +8,12 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_components REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(robot_interfaces REQUIRED)
+find_package(robot_utils REQUIRED)
 
 include_directories(include)
 
@@ -19,10 +24,35 @@ target_include_directories(ballistics_calculator PUBLIC
 )
 target_link_libraries(ballistics_calculator Eigen3::Eigen)
 
-ament_export_targets(ballistics_calculator HAS_LIBRARY_TARGET)
-ament_export_dependencies(rclcpp Eigen3)
+add_library(ballistics_node SHARED
+  src/ballistics_node.cpp
+)
+target_include_directories(ballistics_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(ballistics_node 
+  ballistics_calculator 
+)
+ament_target_dependencies(ballistics_node 
+  rclcpp 
+  rclcpp_components
+  Eigen3 
+  tf2_ros 
+  tf2_geometry_msgs 
+  robot_interfaces
+  robot_utils
+)
 
-install(TARGETS ballistics_calculator
+rclcpp_components_register_node(ballistics_node
+  PLUGIN robot_ballistics::BallisticsNode
+  EXECUTABLE ballistics_component_node
+)
+
+ament_export_targets(ballistics_calculator HAS_LIBRARY_TARGET)
+ament_export_dependencies(rclcpp rclcpp_components Eigen3 tf2_ros tf2_geometry_msgs robot_interfaces robot_utils)
+
+install(TARGETS ballistics_calculator ballistics_node
   EXPORT ballistics_calculator
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib

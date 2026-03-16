@@ -297,76 +297,88 @@ void ArmorSolverNode::timerCallback() {
                 auto future_state = target->getPredictedState(tracker_->getLastSeenTime() + rclcpp::Duration::from_seconds(dt_i));
                 
                 double cx, cy, cz, yaw, v_yaw, r, vx, vy, vz;
-                int best_id = 0;
                 
                 if (target->getArmorNum() == 3) {
                     cx = future_state(0); cy = future_state(1); cz = future_state(2);
                     vx = 0; vy = 0; vz = 0;
                     yaw = future_state(3); v_yaw = future_state(4); r = future_state(5);
-                    
-                    double dir_to_origin = std::atan2(-cy, -cx);
-                    double min_angle_err = 1e10;
-                    for (int j = 0; j < 3; ++j) {
-                        double armor_angle = robot_utils::normalize_angle(yaw + j * 2.0 * M_PI / 3.0);
-                        // Armor faces outwards at angle + PI in this model
-                        double armor_facing = robot_utils::normalize_angle(armor_angle + M_PI);
-                        double angle_err = std::abs(robot_utils::normalize_angle(dir_to_origin - armor_facing));
-                        if (angle_err < min_angle_err) {
-                            min_angle_err = angle_err;
-                            best_id = j;
-                        }
-                    }
                 } else {
                     cx = future_state(0); cy = future_state(2); cz = future_state(4);
                     vx = future_state(1); vy = future_state(3); vz = future_state(5);
                     yaw = future_state(6); v_yaw = future_state(7); r = future_state(8);
-                    
-                    double dir_to_origin = std::atan2(-cy, -cx);
-                    double min_angle_err = 1e10;
-                    for (int j = 0; j < 4; ++j) {
-                        double armor_angle = robot_utils::normalize_angle(yaw + j * M_PI / 2.0);
-                        // Armor faces outwards at angle + PI in this model
-                        double armor_facing = robot_utils::normalize_angle(armor_angle + M_PI);
-                        double angle_err = std::abs(robot_utils::normalize_angle(dir_to_origin - armor_facing));
-                        if (angle_err < min_angle_err) {
-                            min_angle_err = angle_err;
-                            best_id = j;
-                        }
-                    }
                 }
 
-                double angle;
-                double h_offset = 0;
-                if (target->getArmorNum() == 3) {
-                    angle = robot_utils::normalize_angle(yaw + best_id * 2.0 * M_PI / 3.0);
-                    h_offset = -best_id * future_state(6);
+                double dir_to_origin = std::atan2(-cy, -cx);
+                
+                // --- Soft Armor Selection (Blending) ---
+                double total_weight = 0.0;
+                double blended_ax = 0.0, blended_ay = 0.0, blended_az = 0.0;
+                int armor_num = target->getArmorNum();
+
+                for (int j = 0; j < armor_num; ++j) {
+                    double armor_angle, h_offset = 0;
+                    double current_r = r;
+                    if (armor_num == 3) {
+                        armor_angle = robot_utils::normalize_angle(yaw + j * 2.0 * M_PI / 3.0);
+                        h_offset = -j * future_state(6);
+                    } else {
+                        armor_angle = robot_utils::normalize_angle(yaw + j * M_PI / 2.0);
+                        if (j % 2 != 0) {
+                            current_r += future_state(9);
+                            h_offset = future_state(10);
+                        }
+                    }
+
+                    // Armor faces outwards at armor_angle + PI in this model
+                    double armor_facing = robot_utils::normalize_angle(armor_angle + M_PI);
+                    double angle_diff = std::abs(robot_utils::normalize_angle(dir_to_origin - armor_facing));
+                    
+                    // Use cos^n weighting for smooth blending (n=10 for narrow focus)
+                    double weight = std::pow(std::max(0.0, std::cos(angle_diff)), 10.0);
+                    
+                    double ax = cx - current_r * std::cos(armor_angle);
+                    double ay = cy - current_r * std::sin(armor_angle);
+                    double az = cz + h_offset;
+
+                    blended_ax += ax * weight;
+                    blended_ay += ay * weight;
+                    blended_az += az * weight;
+                    total_weight += weight;
+                }
+
+                if (total_weight > 1e-6) {
+                    blended_ax /= total_weight;
+                    blended_ay /= total_weight;
+                    blended_az /= total_weight;
                 } else {
-                    angle = robot_utils::normalize_angle(yaw + best_id * M_PI / 2.0);
-                    if (best_id % 2 != 0) r += future_state(9); // l
-                    if (best_id % 2 != 0) h_offset = future_state(10); // h
+                    blended_ax = cx; blended_ay = cy; blended_az = cz;
                 }
 
                 robot_interfaces::msg::TargetTrajectoryPoint true_pt, aim_pt;
                 true_pt.time_offset = i * trajectory_dt_;
-                true_pt.x = cx - r * std::cos(angle);
-                true_pt.y = cy - r * std::sin(angle);
-                true_pt.z = cz + h_offset;
+                true_pt.x = blended_ax;
+                true_pt.y = blended_ay;
+                true_pt.z = blended_az;
                 true_pt.v_x = vx;
                 true_pt.v_y = vy;
                 true_pt.v_z = vz;
 
                 double omega = std::abs(v_yaw);
-                double r_aim = r;
+                double r_ratio = 1.0;
                 if (omega > trajectory_omega_high_) {
-                    r_aim = 0.0;
+                    r_ratio = 0.0;
                 } else if (omega > trajectory_omega_low_) {
-                    r_aim = r * (trajectory_omega_high_ - omega) / (trajectory_omega_high_ - trajectory_omega_low_);
+                    r_ratio = (trajectory_omega_high_ - omega) / (trajectory_omega_high_ - trajectory_omega_low_);
                 }
 
                 aim_pt.time_offset = i * trajectory_dt_;
-                aim_pt.x = cx - r_aim * std::cos(angle);
-                aim_pt.y = cy - r_aim * std::sin(angle);
-                aim_pt.z = cz + h_offset;
+                // Aim point is interpolated between center and the hit point
+                aim_pt.x = cx + (blended_ax - cx) * r_ratio;
+                aim_pt.y = cy + (blended_ay - cy) * r_ratio;
+                aim_pt.z = blended_az;
+                aim_pt.v_x = vx;
+                aim_pt.v_y = vy;
+                aim_pt.v_z = vz;
                 aim_pt.v_x = vx;
                 aim_pt.v_y = vy;
                 aim_pt.v_z = vz;

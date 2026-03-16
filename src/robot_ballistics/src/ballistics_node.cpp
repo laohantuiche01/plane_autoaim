@@ -1,0 +1,206 @@
+#include "robot_ballistics/ballistics_node.hpp"
+#include <cmath>
+
+namespace robot_ballistics {
+
+BallisticsNode::BallisticsNode(const rclcpp::NodeOptions& options)
+    : rclcpp::Node("ballistics_node", options) {
+    
+    // Parameters
+    bullet_speed_ = this->declare_parameter("bullet_speed", 25.0);
+    gimbal_frame_ = this->declare_parameter("gimbal_frame", "gimbal_link");
+    true_angle_tolerance_ = this->declare_parameter("true_angle_tolerance", 0.05);
+    aim_angle_tolerance_ = this->declare_parameter("aim_angle_tolerance", 0.05);
+    
+    enable_sg_yaw_ = this->declare_parameter("enable_sg_yaw", true);
+    sg_yaw_order_ = this->declare_parameter("sg_yaw_order", 2);
+    enable_sg_pitch_ = this->declare_parameter("enable_sg_pitch", true);
+    sg_pitch_order_ = this->declare_parameter("sg_pitch_order", 2);
+
+    tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
+    trajectory_sub_ = this->create_subscription<robot_interfaces::msg::TargetTrajectory>(
+        "armor_solver/trajectory", rclcpp::SensorDataQoS(),
+        std::bind(&BallisticsNode::trajectoryCallback, this, std::placeholders::_1));
+
+    aim_pub_ = this->create_publisher<robot_interfaces::msg::Aim>("armor_solver/cmd_gimbal", 10);
+    debug_pub_ = this->create_publisher<robot_interfaces::msg::BallisticsDebug>("armor_solver/ballistics_debug", 10);
+
+    // Parameter Callback
+    on_set_parameters_callback_handle_ = this->add_on_set_parameters_callback(
+        [this](const std::vector<rclcpp::Parameter>& parameters) {
+            rcl_interfaces::msg::SetParametersResult result;
+            result.successful = true;
+            for (const auto& param : parameters) {
+                if (param.get_name() == "bullet_speed") bullet_speed_ = param.as_double();
+                else if (param.get_name() == "gimbal_frame") gimbal_frame_ = param.as_string();
+                else if (param.get_name() == "true_angle_tolerance") true_angle_tolerance_ = param.as_double();
+                else if (param.get_name() == "aim_angle_tolerance") aim_angle_tolerance_ = param.as_double();
+                else if (param.get_name() == "enable_sg_yaw") enable_sg_yaw_ = param.as_bool();
+                else if (param.get_name() == "sg_yaw_order") sg_yaw_order_ = param.as_int();
+                else if (param.get_name() == "enable_sg_pitch") enable_sg_pitch_ = param.as_bool();
+                else if (param.get_name() == "sg_pitch_order") sg_pitch_order_ = param.as_int();
+            }
+            return result;
+        });
+}
+
+void BallisticsNode::trajectoryCallback(const robot_interfaces::msg::TargetTrajectory::SharedPtr msg) {
+    if (msg->true_trajectory.empty() || msg->aim_trajectory.empty() || 
+        msg->true_trajectory.size() != msg->aim_trajectory.size()) {
+        return;
+    }
+
+    size_t num_points = msg->true_trajectory.size();
+    if (num_points < 3 || num_points % 2 == 0) {
+        RCLCPP_WARN(this->get_logger(), "Trajectory size must be odd and >= 3.");
+        return;
+    }
+
+    geometry_msgs::msg::TransformStamped transform_stamped;
+    try {
+        // Try to get transform at message timestamp with a small timeout
+        transform_stamped = tf_buffer_->lookupTransform(
+            gimbal_frame_, msg->header.frame_id, msg->header.stamp, rclcpp::Duration::from_seconds(0.005));
+    } catch (const tf2::ExtrapolationException& ex) {
+        // If message time is slightly in the future, fallback to latest available transform
+        try {
+            transform_stamped = tf_buffer_->lookupTransform(
+                gimbal_frame_, msg->header.frame_id, tf2::TimePointZero);
+        } catch (const tf2::TransformException& ex2) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "TF fallback error: %s", ex2.what());
+            return;
+        }
+    } catch (const tf2::TransformException& ex) {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "TF error: %s", ex.what());
+        return;
+    }
+
+    std::vector<double> true_yaw(num_points), true_pitch(num_points);
+    std::vector<double> aim_yaw(num_points), aim_pitch(num_points);
+    
+    double dt = 0.05;
+    if (num_points > 1) {
+        dt = msg->true_trajectory[1].time_offset - msg->true_trajectory[0].time_offset;
+    }
+
+    auto process_point = [&](const robot_interfaces::msg::TargetTrajectoryPoint& pt, double& yaw, double& pitch) {
+        geometry_msgs::msg::PoseStamped pt_in, pt_out;
+        pt_in.header.frame_id = msg->header.frame_id;
+        pt_in.header.stamp = msg->header.stamp;
+        pt_in.pose.position.x = pt.x;
+        pt_in.pose.position.y = pt.y;
+        pt_in.pose.position.z = pt.z;
+        pt_in.pose.orientation.w = 1.0;
+
+        tf2::doTransform(pt_in, pt_out, transform_stamped);
+
+        double gx = pt_out.pose.position.x;
+        double gy = pt_out.pose.position.y;
+        double gz = pt_out.pose.position.z;
+
+        yaw = std::atan2(gy, gx);
+
+        double d = std::sqrt(gx * gx + gy * gy);
+        double v = bullet_speed_;
+        double g = 9.8;
+
+        // z = d*u - (g*d^2)/(2*v^2) * (1 + u^2)
+        double k = (g * d * d) / (2 * v * v);
+        double discriminant = d * d - 4 * k * (gz + k);
+
+        if (discriminant >= 0) {
+            double u = (d - std::sqrt(discriminant)) / (2 * k);
+            pitch = std::atan(u);
+        } else {
+            pitch = std::atan2(gz, d); // fallback
+        }
+    };
+
+    Eigen::Vector3d center_true_pt_gimbal, center_aim_pt_gimbal;
+    int center_idx = num_points / 2;
+
+    for (size_t i = 0; i < num_points; ++i) {
+        process_point(msg->true_trajectory[i], true_yaw[i], true_pitch[i]);
+        process_point(msg->aim_trajectory[i], aim_yaw[i], aim_pitch[i]);
+
+        if (i == static_cast<size_t>(center_idx)) {
+            geometry_msgs::msg::PoseStamped pt_in, pt_out;
+            pt_in.header.frame_id = msg->header.frame_id;
+            pt_in.header.stamp = msg->header.stamp;
+            
+            pt_in.pose.position.x = msg->true_trajectory[i].x;
+            pt_in.pose.position.y = msg->true_trajectory[i].y;
+            pt_in.pose.position.z = msg->true_trajectory[i].z;
+            tf2::doTransform(pt_in, pt_out, transform_stamped);
+            center_true_pt_gimbal = Eigen::Vector3d(pt_out.pose.position.x, pt_out.pose.position.y, pt_out.pose.position.z);
+            
+            pt_in.pose.position.x = msg->aim_trajectory[i].x;
+            pt_in.pose.position.y = msg->aim_trajectory[i].y;
+            pt_in.pose.position.z = msg->aim_trajectory[i].z;
+            tf2::doTransform(pt_in, pt_out, transform_stamped);
+            center_aim_pt_gimbal = Eigen::Vector3d(pt_out.pose.position.x, pt_out.pose.position.y, pt_out.pose.position.z);
+        }
+    }
+
+    double final_aim_yaw, final_aim_pitch, final_w_yaw, final_w_pitch;
+
+    // Unwrap angles to prevent S-G filter spikes at 2pi boundaries
+    robot_utils::unwrap_angles(true_yaw);
+    robot_utils::unwrap_angles(aim_yaw);
+    // Pitch typically doesn't wrap but we handle it for consistency
+    robot_utils::unwrap_angles(true_pitch);
+    robot_utils::unwrap_angles(aim_pitch);
+
+    if (enable_sg_yaw_ && sg_yaw_order_ < static_cast<int>(num_points)) {
+        robot_utils::SavitzkyGolayFilter sg_yaw_val(num_points, sg_yaw_order_, 0, dt);
+        robot_utils::SavitzkyGolayFilter sg_yaw_vel(num_points, sg_yaw_order_, 1, dt);
+        final_aim_yaw = robot_utils::normalize_angle(sg_yaw_val.filterCenter(aim_yaw));
+        final_w_yaw = sg_yaw_vel.filterCenter(aim_yaw);
+    } else {
+        final_aim_yaw = robot_utils::normalize_angle(aim_yaw[center_idx]);
+        final_w_yaw = (aim_yaw[center_idx + 1] - aim_yaw[center_idx - 1]) / (2 * dt);
+    }
+
+    if (enable_sg_pitch_ && sg_pitch_order_ < static_cast<int>(num_points)) {
+        robot_utils::SavitzkyGolayFilter sg_pitch_val(num_points, sg_pitch_order_, 0, dt);
+        robot_utils::SavitzkyGolayFilter sg_pitch_vel(num_points, sg_pitch_order_, 1, dt);
+        final_aim_pitch = sg_pitch_val.filterCenter(aim_pitch);
+        final_w_pitch = sg_pitch_vel.filterCenter(aim_pitch);
+    } else {
+        final_aim_pitch = aim_pitch[center_idx];
+        final_w_pitch = (aim_pitch[center_idx + 1] - aim_pitch[center_idx - 1]) / (2 * dt);
+    }
+
+    double true_angle_to_x = std::acos(center_true_pt_gimbal.x() / center_true_pt_gimbal.norm());
+    double aim_angle_to_x = std::acos(center_aim_pt_gimbal.x() / center_aim_pt_gimbal.norm());
+
+    bool success = false;
+    if (std::abs(true_angle_to_x) < true_angle_tolerance_ && std::abs(aim_angle_to_x) < aim_angle_tolerance_) {
+        success = true;
+    }
+
+    robot_interfaces::msg::Aim aim_cmd;
+    aim_cmd.header = msg->header;
+    aim_cmd.yaw = final_aim_yaw;
+    aim_cmd.pitch = final_aim_pitch;
+    aim_cmd.w_yaw = final_w_yaw;
+    aim_cmd.w_pitch = final_w_pitch;
+    aim_cmd.success = success;
+    
+    aim_pub_->publish(aim_cmd);
+
+    robot_interfaces::msg::BallisticsDebug debug_msg;
+    debug_msg.header = msg->header;
+    debug_msg.raw_yaw = aim_yaw[center_idx];
+    debug_msg.raw_pitch = aim_pitch[center_idx];
+    debug_msg.true_angle_to_x = true_angle_to_x;
+    debug_msg.aim_angle_to_x = aim_angle_to_x;
+    debug_msg.success = success;
+    debug_pub_->publish(debug_msg);
+}
+
+} // namespace robot_ballistics
+
+RCLCPP_COMPONENTS_REGISTER_NODE(robot_ballistics::BallisticsNode)

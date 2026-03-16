@@ -49,6 +49,11 @@ T clamp(T val, T min, T max) {
 double normalize_angle(double angle);
 
 /**
+ * @brief Unwrap a sequence of angles to remove 2pi discontinuities.
+ */
+void unwrap_angles(std::vector<double>& angles);
+
+/**
  * @brief Convert degrees to radians.
  */
 inline double deg_to_rad(double deg) {

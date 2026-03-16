@@ -17,6 +17,7 @@ ament_auto_add_library(${PROJECT_NAME} SHARED
   src/math_utils.cpp
   src/pnp_solver.cpp
   src/url_resolver.cpp
+  src/savitzky_golay.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
