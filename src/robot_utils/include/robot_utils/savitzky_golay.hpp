@@ -9,29 +9,27 @@ namespace robot_utils {
 class SavitzkyGolayFilter {
 public:
     /**
-     * @brief Construct a new Savitzky Golay Filter object
+     * @brief Construct a new Polynomial Filter object
      * 
-     * @param window_size Number of data points in the smoothing window (must be odd)
-     * @param poly_order Order of the polynomial to fit (must be less than window_size)
-     * @param deriv_order Order of the derivative to compute (0 for smoothed value, 1 for first derivative, etc.)
-     * @param dt Time step between data points (for scaling derivatives)
+     * @param window_size Number of data points in the window
+     * @param poly_order Order of the polynomial to fit
      */
-    SavitzkyGolayFilter(int window_size, int poly_order, int deriv_order = 0, double dt = 1.0);
+    SavitzkyGolayFilter(int window_size, int poly_order);
     
     /**
-     * @brief Compute the filtered value or derivative for the center of the given data window.
+     * @brief Perform a least-squares polynomial fit on the given time-value pairs 
+     *        and return the value and its first derivative at the target time.
      * 
-     * @param data Vector of data points. Its size must equal window_size.
-     * @return double The filtered value or derivative evaluated at the center of the window.
+     * @param times Vector of time offsets for each data point
+     * @param values Vector of data values
+     * @param target_time The time at which to evaluate the fit (usually 0 for center)
+     * @return std::pair<double, double> {value, first_derivative}
      */
-    double filterCenter(const std::vector<double>& data) const;
+    std::pair<double, double> fit(const std::vector<double>& times, const std::vector<double>& values, double target_time = 0.0) const;
 
 private:
     int window_size_;
     int poly_order_;
-    int deriv_order_;
-    double dt_;
-    Eigen::VectorXd coeffs_;
 };
 
 } // namespace robot_utils
