@@ -28,7 +28,7 @@ void RobotTarget::init(const TrackerArmor& armor) {
     double cz = armor.position.z();
     
     Eigen::Matrix<double, STATE_DIM, 1> x0;
-    x0 << cx, 0, cy, 0, cz, 0, yaw, M_PI, r, 0, 0;
+    x0 << cx, 0, cy, 0, cz, 0, yaw, 0.0, r, 0, 0;
     
     Eigen::Matrix<double, STATE_DIM, STATE_DIM> P0 = Eigen::Matrix<double, STATE_DIM, STATE_DIM>::Identity();
     P0.block<6, 6>(0, 0) *= 0.1;
@@ -171,11 +171,10 @@ bool RobotTarget::update(const TrackerArmor& armor) {
 
 bool RobotTarget::isConverged() const {
     const auto& cov = ukf_.getCovariance().diagonal();
-    // 速度方差由于过程噪声的注入（如 q_vx = 0.1），其稳态值不可能低于过程噪声。
-    // 因此我们只检查位置（x:0, y:2, z:4）和角度（yaw:6）的方差是否收敛到一个合理的范围。
-    return update_count_ > 10 && 
-           cov(0) < 0.5 && cov(2) < 0.5 && cov(4) < 0.5 && 
-           cov(6) < 0.2;
+    // Position (x:0, y:2, z:4) and Angle (yaw:6)
+    return update_count_ > 5 && 
+           cov(0) < 2.0 && cov(2) < 2.0 && cov(4) < 2.0 && 
+           cov(6) < 1.0;
 }
 
 bool RobotTarget::isDiverged() const {

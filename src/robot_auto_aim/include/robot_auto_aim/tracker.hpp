@@ -29,7 +29,8 @@ public:
     std::shared_ptr<TargetBase> track(const std::vector<TrackerArmor>& armors, const rclcpp::Time& time);
 
     std::shared_ptr<TargetBase> getTarget() { return target_; }
-    
+    rclcpp::Time getLastSeenTime() const { return last_seen_time_; }
+
     void handleTimeouts(const rclcpp::Time& time);
 
     State getState() const { return state_; }

@@ -226,7 +226,7 @@ void OutpostTarget::setUKFParams(double alpha, double beta, double kappa) {
 
 bool OutpostTarget::isConverged() const {
     const auto& cov = ukfs_[best_ukf_idx_].getCovariance().diagonal(); 
-    return update_count_ > 10 && cov(0) < 0.5 && cov(1) < 0.5 && cov(2) < 0.5 && cov(3) < 0.2;
+    return update_count_ > 5 && cov(0) < 2.0 && cov(1) < 2.0 && cov(2) < 2.0 && cov(3) < 1.0;
 }
 
 bool OutpostTarget::isDiverged() const {

@@ -51,6 +51,14 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
     ukf_beta_ = declare_parameter("ukf_beta", 2.0);
     ukf_kappa_ = declare_parameter("ukf_kappa", 0.0);
 
+    // Ballistics & Trajectory Params
+    bullet_speed_ = declare_parameter("bullet_speed", 25.0);
+    delay_offset_ = declare_parameter("delay_offset", 0.0);
+    trajectory_num_points_ = declare_parameter("trajectory.num_points", 11);
+    trajectory_dt_ = declare_parameter("trajectory.dt", 0.05);
+    trajectory_omega_low_ = declare_parameter("trajectory.omega_low", 1.5);
+    trajectory_omega_high_ = declare_parameter("trajectory.omega_high", 4.0);
+
     tracker_ = std::make_unique<Tracker>(this->get_clock(), max_lost_duration, min_detect_count);
     updateTrackerParams();
     tracker_->updateUKFParams(ukf_alpha_, ukf_beta_, ukf_kappa_);
@@ -96,6 +104,12 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
                 else if (param.get_name() == "ukf_kappa") { ukf_kappa_ = param.as_double(); should_reset = true; }
                 else if (param.get_name() == "max_lost_duration") tracker_->setMaxLostDuration(param.as_double());
                 else if (param.get_name() == "min_detect_count") tracker_->setMinDetectCount(param.as_int());
+                else if (param.get_name() == "bullet_speed") bullet_speed_ = param.as_double();
+                else if (param.get_name() == "delay_offset") delay_offset_ = param.as_double();
+                else if (param.get_name() == "trajectory.num_points") trajectory_num_points_ = param.as_int();
+                else if (param.get_name() == "trajectory.dt") trajectory_dt_ = param.as_double();
+                else if (param.get_name() == "trajectory.omega_low") trajectory_omega_low_ = param.as_double();
+                else if (param.get_name() == "trajectory.omega_high") trajectory_omega_high_ = param.as_double();
             }
 
             if (should_reset) {
@@ -113,6 +127,7 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
     aim_pub_ = create_publisher<robot_interfaces::msg::Aim>("armor_solver/aim", rclcpp::SensorDataQoS());
     target_state_pub_ = create_publisher<robot_interfaces::msg::TargetState>("armor_solver/target_state", rclcpp::SensorDataQoS());
     marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("armor_solver/markers", 10);
+    trajectory_pub_ = create_publisher<robot_interfaces::msg::TargetTrajectory>("armor_solver/trajectory", 10);
 
     // Create timer for prediction and publication (100Hz)
     timer_ = create_wall_timer(std::chrono::milliseconds(10), std::bind(&ArmorSolverNode::timerCallback, this));
@@ -129,6 +144,7 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_activate(const rclcpp_lifecy
     aim_pub_->on_activate();
     target_state_pub_->on_activate();
     marker_pub_->on_activate();
+    trajectory_pub_->on_activate();
 
     return CallbackReturn::SUCCESS;
 }
@@ -140,6 +156,7 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_deactivate(const rclcpp_life
     aim_pub_->on_deactivate();
     target_state_pub_->on_deactivate();
     marker_pub_->on_deactivate();
+    trajectory_pub_->on_deactivate();
 
     return CallbackReturn::SUCCESS;
 }
@@ -201,7 +218,7 @@ void ArmorSolverNode::armorsCallback(const robot_interfaces::msg::Armors::Shared
 
 void ArmorSolverNode::timerCallback() {
     auto now = this->now();
-    
+
     // 1. Let tracker handle internal state machine timeouts based on wall time
     tracker_->handleTimeouts(now);
 
@@ -213,17 +230,14 @@ void ArmorSolverNode::timerCallback() {
         auto state = target->getPredictedState(now);
         auto cov = target->getCovariance();
 
-        robot_interfaces::msg::Aim aim_msg;
-        aim_msg.header.stamp = now;
-        aim_msg.header.frame_id = odom_frame_;
-        aim_msg.success = (tracker_->getState() == Tracker::State::TRACKING);
-        
+        std_msgs::msg::Header header;
+        header.stamp = now;
+        header.frame_id = odom_frame_;
+
         // Publish state for debugging
         robot_interfaces::msg::TargetState state_msg;
-        state_msg.header = aim_msg.header;
 
         if (target->getArmorNum() == 3) { // Outpost
-            aim_msg.yaw = state(3);
             state_msg.x = state(0); state_msg.v_x = 0;
             state_msg.y = state(1); state_msg.v_y = 0;
             state_msg.z = state(2); state_msg.v_z = 0;
@@ -240,7 +254,6 @@ void ArmorSolverNode::timerCallback() {
             state_msg.p_l = 0;
             state_msg.p_h = cov(6,6);
         } else { // Robot
-            aim_msg.yaw = state(6);
             state_msg.x = state(0); state_msg.v_x = state(1);
             state_msg.y = state(2); state_msg.v_y = state(3);
             state_msg.z = state(4); state_msg.v_z = state(5);
@@ -257,20 +270,129 @@ void ArmorSolverNode::timerCallback() {
             state_msg.p_l = cov(9,9);
             state_msg.p_h = cov(10,10);
         }
-        
-        aim_pub_->publish(aim_msg);
+
         target_state_pub_->publish(state_msg);
 
-        publishMarkers(target, aim_msg.header);
-    } else {
-        robot_interfaces::msg::Aim aim_msg;
-        aim_msg.header.stamp = now;
-        aim_msg.success = false;
-        aim_pub_->publish(aim_msg);
+        Eigen::Vector3d central_hit_pt(0,0,0);
+        Eigen::Vector3d central_aim_pt(0,0,0);
+        bool has_prediction = false;
+
+        // --- Trajectory Generation ---
+        if ((tracker_->getState() == Tracker::State::TRACKING || tracker_->getState() == Tracker::State::TEMP_LOST) && target->isConverged()) {
+            double pipeline_latency = (now - tracker_->getLastSeenTime()).seconds();
+            double t_predict = robot_ballistics::BallisticsCalculator::calculatePredictTime(
+                Eigen::Vector3d(state_msg.x, state_msg.y, state_msg.z), 
+                bullet_speed_, 
+                pipeline_latency, 
+                delay_offset_);
+            
+            robot_interfaces::msg::TargetTrajectory traj_msg;
+            traj_msg.header = header;
+            
+            int num_points = trajectory_num_points_ > 0 && trajectory_num_points_ % 2 != 0 ? trajectory_num_points_ : 11;
+            int half_points = num_points / 2;
+
+            for (int i = -half_points; i <= half_points; ++i) {
+                double dt_i = t_predict + i * trajectory_dt_;
+                auto future_state = target->getPredictedState(tracker_->getLastSeenTime() + rclcpp::Duration::from_seconds(dt_i));
+                
+                double cx, cy, cz, yaw, v_yaw, r, vx, vy, vz;
+                int best_id = 0;
+                
+                if (target->getArmorNum() == 3) {
+                    cx = future_state(0); cy = future_state(1); cz = future_state(2);
+                    vx = 0; vy = 0; vz = 0;
+                    yaw = future_state(3); v_yaw = future_state(4); r = future_state(5);
+                    
+                    double dir_to_origin = std::atan2(-cy, -cx);
+                    double min_angle_err = 1e10;
+                    for (int j = 0; j < 3; ++j) {
+                        double armor_angle = robot_utils::normalize_angle(yaw + j * 2.0 * M_PI / 3.0);
+                        // Armor faces outwards at angle + PI in this model
+                        double armor_facing = robot_utils::normalize_angle(armor_angle + M_PI);
+                        double angle_err = std::abs(robot_utils::normalize_angle(dir_to_origin - armor_facing));
+                        if (angle_err < min_angle_err) {
+                            min_angle_err = angle_err;
+                            best_id = j;
+                        }
+                    }
+                } else {
+                    cx = future_state(0); cy = future_state(2); cz = future_state(4);
+                    vx = future_state(1); vy = future_state(3); vz = future_state(5);
+                    yaw = future_state(6); v_yaw = future_state(7); r = future_state(8);
+                    
+                    double dir_to_origin = std::atan2(-cy, -cx);
+                    double min_angle_err = 1e10;
+                    for (int j = 0; j < 4; ++j) {
+                        double armor_angle = robot_utils::normalize_angle(yaw + j * M_PI / 2.0);
+                        // Armor faces outwards at angle + PI in this model
+                        double armor_facing = robot_utils::normalize_angle(armor_angle + M_PI);
+                        double angle_err = std::abs(robot_utils::normalize_angle(dir_to_origin - armor_facing));
+                        if (angle_err < min_angle_err) {
+                            min_angle_err = angle_err;
+                            best_id = j;
+                        }
+                    }
+                }
+
+                double angle;
+                double h_offset = 0;
+                if (target->getArmorNum() == 3) {
+                    angle = robot_utils::normalize_angle(yaw + best_id * 2.0 * M_PI / 3.0);
+                    h_offset = -best_id * future_state(6);
+                } else {
+                    angle = robot_utils::normalize_angle(yaw + best_id * M_PI / 2.0);
+                    if (best_id % 2 != 0) r += future_state(9); // l
+                    if (best_id % 2 != 0) h_offset = future_state(10); // h
+                }
+
+                robot_interfaces::msg::TargetTrajectoryPoint true_pt, aim_pt;
+                true_pt.time_offset = i * trajectory_dt_;
+                true_pt.x = cx - r * std::cos(angle);
+                true_pt.y = cy - r * std::sin(angle);
+                true_pt.z = cz + h_offset;
+                true_pt.v_x = vx;
+                true_pt.v_y = vy;
+                true_pt.v_z = vz;
+
+                double omega = std::abs(v_yaw);
+                double r_aim = r;
+                if (omega > trajectory_omega_high_) {
+                    r_aim = 0.0;
+                } else if (omega > trajectory_omega_low_) {
+                    r_aim = r * (trajectory_omega_high_ - omega) / (trajectory_omega_high_ - trajectory_omega_low_);
+                }
+
+                aim_pt.time_offset = i * trajectory_dt_;
+                aim_pt.x = cx - r_aim * std::cos(angle);
+                aim_pt.y = cy - r_aim * std::sin(angle);
+                aim_pt.z = cz + h_offset;
+                aim_pt.v_x = vx;
+                aim_pt.v_y = vy;
+                aim_pt.v_z = vz;
+
+                traj_msg.true_trajectory.push_back(true_pt);
+                traj_msg.aim_trajectory.push_back(aim_pt);
+
+                if (i == 0) {
+                    central_hit_pt = Eigen::Vector3d(true_pt.x, true_pt.y, true_pt.z);
+                    central_aim_pt = Eigen::Vector3d(aim_pt.x, aim_pt.y, aim_pt.z);
+                    has_prediction = true;
+                }
+            }
+            trajectory_pub_->publish(traj_msg);
+        }
+        // -----------------------------
+
+        publishMarkers(target, header, has_prediction, central_hit_pt, central_aim_pt);
     }
 }
 
-void ArmorSolverNode::publishMarkers(const std::shared_ptr<TargetBase>& target, const std_msgs::msg::Header& header) {
+void ArmorSolverNode::publishMarkers(const std::shared_ptr<TargetBase>& target, 
+                                    const std_msgs::msg::Header& header,
+                                    bool has_prediction,
+                                    const Eigen::Vector3d& hit_pt,
+                                    const Eigen::Vector3d& aim_pt) {
     visualization_msgs::msg::MarkerArray marker_array;
     auto state = target->getPredictedState(header.stamp);
 
@@ -297,6 +419,37 @@ void ArmorSolverNode::publishMarkers(const std::shared_ptr<TargetBase>& target, 
     center_marker.color.a = 1.0;
     center_marker.color.g = 1.0;
     marker_array.markers.push_back(center_marker);
+
+    // Hit and Aim Point Visualization
+    if (has_prediction) {
+        visualization_msgs::msg::Marker hit_marker;
+        hit_marker.header = header;
+        hit_marker.ns = "hit_aim";
+        hit_marker.id = 0;
+        hit_marker.type = visualization_msgs::msg::Marker::SPHERE;
+        hit_marker.action = visualization_msgs::msg::Marker::ADD;
+        hit_marker.pose.position.x = hit_pt.x();
+        hit_marker.pose.position.y = hit_pt.y();
+        hit_marker.pose.position.z = hit_pt.z();
+        hit_marker.scale.x = hit_marker.scale.y = hit_marker.scale.z = 0.08;
+        hit_marker.color.a = 1.0;
+        hit_marker.color.r = 1.0; hit_marker.color.b = 1.0; // Magenta for hit point
+        marker_array.markers.push_back(hit_marker);
+
+        visualization_msgs::msg::Marker aim_marker;
+        aim_marker.header = header;
+        aim_marker.ns = "hit_aim";
+        aim_marker.id = 1;
+        aim_marker.type = visualization_msgs::msg::Marker::SPHERE;
+        aim_marker.action = visualization_msgs::msg::Marker::ADD;
+        aim_marker.pose.position.x = aim_pt.x();
+        aim_marker.pose.position.y = aim_pt.y();
+        aim_marker.pose.position.z = aim_pt.z();
+        aim_marker.scale.x = aim_marker.scale.y = aim_marker.scale.z = 0.08;
+        aim_marker.color.a = 1.0;
+        aim_marker.color.g = 1.0; aim_marker.color.b = 1.0; // Cyan for aim point
+        marker_array.markers.push_back(aim_marker);
+    }
 
     // Armor markers
     double yaw, r;

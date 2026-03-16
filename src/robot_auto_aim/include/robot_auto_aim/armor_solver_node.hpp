@@ -16,6 +16,9 @@
 #include "robot_interfaces/msg/armors.hpp"
 #include "robot_interfaces/msg/aim.hpp"
 #include "robot_interfaces/msg/target_state.hpp"
+#include "robot_interfaces/msg/target_trajectory.hpp"
+#include "robot_ballistics/ballistics_calculator.hpp"
+#include "robot_utils/math_utils.hpp"
 
 namespace robot_auto_aim {
 
@@ -36,7 +39,11 @@ private:
     
     void timerCallback();
     
-    void publishMarkers(const std::shared_ptr<TargetBase>& target, const std_msgs::msg::Header& header);
+    void publishMarkers(const std::shared_ptr<TargetBase>& target, 
+                        const std_msgs::msg::Header& header,
+                        bool has_prediction = false,
+                        const Eigen::Vector3d& hit_pt = Eigen::Vector3d::Zero(),
+                        const Eigen::Vector3d& aim_pt = Eigen::Vector3d::Zero());
 
     void updateTrackerParams();
 
@@ -47,6 +54,14 @@ private:
 
     double ukf_alpha_, ukf_beta_, ukf_kappa_;
     
+    // Ballistics & Trajectory Params
+    double bullet_speed_;
+    double delay_offset_;
+    int trajectory_num_points_;
+    double trajectory_dt_;
+    double trajectory_omega_low_;
+    double trajectory_omega_high_;
+
     // Timer
     rclcpp::TimerBase::SharedPtr timer_;
     
@@ -55,6 +70,7 @@ private:
     std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<robot_interfaces::msg::Aim>> aim_pub_;
     std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<robot_interfaces::msg::TargetState>> target_state_pub_;
     std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<visualization_msgs::msg::MarkerArray>> marker_pub_;
+    std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<robot_interfaces::msg::TargetTrajectory>> trajectory_pub_;
 
     // TF
     std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
