@@ -36,7 +36,7 @@ private:
     
     void timerCallback();
     
-    void publishMarkers(const std::shared_ptr<Target>& target, const std_msgs::msg::Header& header);
+    void publishMarkers(const std::shared_ptr<TargetBase>& target, const std_msgs::msg::Header& header);
 
     void updateTrackerParams();
 

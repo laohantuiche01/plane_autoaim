@@ -1,10 +1,10 @@
-#include "robot_auto_aim/target.hpp"
+#include "robot_auto_aim/robot_target.hpp"
 #include <cmath>
 #include <algorithm>
 
 namespace robot_auto_aim {
 
-Target::Target() 
+RobotTarget::RobotTarget() 
     : ukf_(0.001, 2.0, 0.0),
       armor_num_(4), priority_(0), last_time_(0), last_armor_id_(0), update_count_(0),
       q_x_(0.001), q_y_(0.001), q_z_(0.001), 
@@ -15,7 +15,7 @@ Target::Target()
       adaptive_tracking_(false), q_alpha_(0.1) { 
 }
 
-void Target::init(const TrackerArmor& armor) {
+void RobotTarget::init(const TrackerArmor& armor) {
     name_ = armor.number;
     type_ = armor.type;
     priority_ = armor.priority;
@@ -50,7 +50,7 @@ void Target::init(const TrackerArmor& armor) {
     update_count_ = 1;
 }
 
-void Target::predict(const rclcpp::Time& time) {
+void RobotTarget::predict(const rclcpp::Time& time) {
     double dt = (time - last_time_).seconds();
     if (dt <= 0) return;
     
@@ -78,7 +78,7 @@ void Target::predict(const rclcpp::Time& time) {
     last_time_ = time;
 }
 
-bool Target::update(const TrackerArmor& armor) {
+bool RobotTarget::update(const TrackerArmor& armor) {
     const auto x = ukf_.getState();
     double current_yaw = x(6);
     
@@ -152,7 +152,7 @@ bool Target::update(const TrackerArmor& armor) {
                 }
             }
             if (max_ratio > 1.5) {
-                RCLCPP_INFO(rclcpp::get_logger("target"), 
+                RCLCPP_INFO(rclcpp::get_logger("robot_target"), 
                     "Adaptive Q inflated! Max Ratio: %.2fx at Index: %d (Base: %.6f, Adaptive: %.6f)", 
                     max_ratio, max_idx, Q_base(max_idx, max_idx), Q_adaptive_(max_idx, max_idx));
             }
@@ -169,7 +169,7 @@ bool Target::update(const TrackerArmor& armor) {
     return false;
 }
 
-bool Target::isConverged() const {
+bool RobotTarget::isConverged() const {
     const auto& cov = ukf_.getCovariance().diagonal();
     // 速度方差由于过程噪声的注入（如 q_vx = 0.1），其稳态值不可能低于过程噪声。
     // 因此我们只检查位置（x:0, y:2, z:4）和角度（yaw:6）的方差是否收敛到一个合理的范围。
@@ -178,7 +178,7 @@ bool Target::isConverged() const {
            cov(6) < 0.2;
 }
 
-bool Target::isDiverged() const {
+bool RobotTarget::isDiverged() const {
     const auto& x = ukf_.getState();
     const auto& cov = ukf_.getCovariance().diagonal();
     if (cov.head<3>().maxCoeff() > 100.0) return true;
@@ -187,7 +187,7 @@ bool Target::isDiverged() const {
     return false;
 }
 
-Eigen::Vector4d Target::h(const Eigen::VectorXd& x, int id) const {
+Eigen::Vector4d RobotTarget::h(const Eigen::VectorXd& x, int id) const {
     double yaw = x(6);
     double r = x(8);
     double l = x(9);
@@ -200,7 +200,7 @@ Eigen::Vector4d Target::h(const Eigen::VectorXd& x, int id) const {
     return Eigen::Vector4d(ax, ay, current_z, angle);
 }
 
-std::vector<Eigen::Vector4d> Target::getResolvedArmors() const {
+std::vector<Eigen::Vector4d> RobotTarget::getResolvedArmors() const {
     std::vector<Eigen::Vector4d> armors;
     const auto x = ukf_.getState();
     for (int i = 0; i < 4; ++i) {
@@ -209,7 +209,7 @@ std::vector<Eigen::Vector4d> Target::getResolvedArmors() const {
     return armors;
 }
 
-Eigen::VectorXd Target::getPredictedState(const rclcpp::Time& time) const {
+Eigen::VectorXd RobotTarget::getPredictedState(const rclcpp::Time& time) const {
     double dt = (time - last_time_).seconds();
     auto x = ukf_.getState();
     if (dt > 0) {

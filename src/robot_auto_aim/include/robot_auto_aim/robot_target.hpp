@@ -1,41 +1,23 @@
-#ifndef ROBOT_AUTO_AIM__TARGET_HPP_
-#define ROBOT_AUTO_AIM__TARGET_HPP_
+#ifndef ROBOT_AUTO_AIM__ROBOT_TARGET_HPP_
+#define ROBOT_AUTO_AIM__ROBOT_TARGET_HPP_
 
-#include <Eigen/Dense>
-#include <chrono>
-#include <memory>
-#include <string>
-#include <vector>
-
-#include "rclcpp/rclcpp.hpp"
-#include "robot_auto_aim/types.hpp"
+#include "robot_auto_aim/target_base.hpp"
 #include "robot_utils/math_utils.hpp"
-#include "robot_utils/ukf.hpp"
 
 namespace robot_auto_aim {
 
-struct TrackerArmor {
-    std::string number;
-    ArmorType type;
-    Eigen::Vector3d position;
-    Eigen::Quaterniond orientation; // Rotation from camera to odom
-    double yaw;
-    double priority;
-    rclcpp::Time timestamp;
-};
-
-class Target {
+class RobotTarget : public TargetBase {
 public:
     static constexpr int STATE_DIM = 11;
     static constexpr int MEAS_DIM = 4;
 
-    Target();
+    RobotTarget();
     
-    void init(const TrackerArmor& armor);
+    void init(const TrackerArmor& armor) override;
 
-    void predict(const rclcpp::Time& time);
+    void predict(const rclcpp::Time& time) override;
 
-    bool update(const TrackerArmor& armor);
+    bool update(const TrackerArmor& armor) override;
 
     void updateParams(double q_x, double q_y, double q_z, 
                       double q_vx, double q_vy, double q_vz,
@@ -43,7 +25,7 @@ public:
                       double r_x, double r_y, double r_z, double r_yaw, 
                       double r_yaw_adaptive_factor,
                       bool adaptive_tracking, double q_alpha,
-                      double dist_scale_coeff, double z_scale_coeff) {
+                      double dist_scale_coeff, double z_scale_coeff) override {
         q_x_ = q_x; q_y_ = q_y; q_z_ = q_z;
         q_vx_ = q_vx; q_vy_ = q_vy; q_vz_ = q_vz;
         q_yaw_ = q_yaw; q_v_yaw_ = q_v_yaw; q_geo_ = q_geo;
@@ -56,7 +38,7 @@ public:
         z_scale_coeff_ = z_scale_coeff;
     }
 
-    void setUKFParams(double alpha, double beta, double kappa) {
+    void setUKFParams(double alpha, double beta, double kappa) override {
         Eigen::VectorXd current_x = ukf_.getState();
         Eigen::MatrixXd current_P = ukf_.getCovariance();
         ukf_ = robot_utils::UKF<STATE_DIM>(alpha, beta, kappa);
@@ -65,22 +47,22 @@ public:
         }
     }
 
-    bool isConverged() const;
+    bool isConverged() const override;
 
-    bool isDiverged() const;
+    bool isDiverged() const override;
 
     // Getters
-    Eigen::VectorXd getState() const { return ukf_.getState(); }
-    Eigen::MatrixXd getCovariance() const { return ukf_.getCovariance(); }
-    const std::string& getName() const { return name_; }
-    ArmorType getType() const { return type_; }
-    int getArmorNum() const { return armor_num_; }
-    double getPriority() const { return priority_; }
-    int getUpdateCount() const { return update_count_; }
+    Eigen::VectorXd getState() const override { return ukf_.getState(); }
+    Eigen::MatrixXd getCovariance() const override { return ukf_.getCovariance(); }
+    const std::string& getName() const override { return name_; }
+    ArmorType getType() const override { return type_; }
+    int getArmorNum() const override { return armor_num_; }
+    double getPriority() const override { return priority_; }
+    int getUpdateCount() const override { return update_count_; }
 
-    std::vector<Eigen::Vector4d> getResolvedArmors() const;
+    std::vector<Eigen::Vector4d> getResolvedArmors() const override;
     
-    Eigen::VectorXd getPredictedState(const rclcpp::Time& time) const;
+    Eigen::VectorXd getPredictedState(const rclcpp::Time& time) const override;
 
 private:
     Eigen::Vector4d h(const Eigen::VectorXd& x, int id) const;
@@ -111,4 +93,4 @@ private:
 
 } // namespace robot_auto_aim
 
-#endif // ROBOT_AUTO_AIM__TARGET_HPP_
+#endif // ROBOT_AUTO_AIM__ROBOT_TARGET_HPP_

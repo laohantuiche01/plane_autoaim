@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "robot_auto_aim/target.hpp"
+#include "robot_auto_aim/target_base.hpp"
 #include "robot_auto_aim/types.hpp"
 
 namespace robot_auto_aim {
@@ -26,9 +26,9 @@ public:
      * @param armors List of detected armors from detector
      * @return Best target if tracking, nullptr otherwise
      */
-    std::shared_ptr<Target> track(const std::vector<TrackerArmor>& armors, const rclcpp::Time& time);
+    std::shared_ptr<TargetBase> track(const std::vector<TrackerArmor>& armors, const rclcpp::Time& time);
 
-    std::shared_ptr<Target> getTarget() { return target_; }
+    std::shared_ptr<TargetBase> getTarget() { return target_; }
     
     void handleTimeouts(const rclcpp::Time& time);
 
@@ -56,7 +56,7 @@ private:
     bool updateTarget(const std::vector<TrackerArmor>& armors, const rclcpp::Time& time);
     
     State state_;
-    std::shared_ptr<Target> target_;
+    std::shared_ptr<TargetBase> target_;
     
     rclcpp::Clock::SharedPtr clock_;
     

@@ -2,6 +2,9 @@
 #include <algorithm>
 #include <rclcpp/rclcpp.hpp>
 
+#include "robot_auto_aim/robot_target.hpp"
+#include "robot_auto_aim/outpost_target.hpp"
+
 namespace robot_auto_aim {
 
 Tracker::Tracker(rclcpp::Clock::SharedPtr clock, double max_lost_duration, int min_detect_count)
@@ -18,7 +21,7 @@ Tracker::Tracker(rclcpp::Clock::SharedPtr clock, double max_lost_duration, int m
       ukf_kappa_(0.0) {
 }
 
-std::shared_ptr<Target> Tracker::track(const std::vector<TrackerArmor>& armors, const rclcpp::Time& time) {
+std::shared_ptr<TargetBase> Tracker::track(const std::vector<TrackerArmor>& armors, const rclcpp::Time& time) {
     auto logger = rclcpp::get_logger("tracker");
     State last_state = state_;
 
@@ -93,7 +96,13 @@ void Tracker::handleTimeouts(const rclcpp::Time& time) {
 }
 
 void Tracker::initTarget(const TrackerArmor& armor) {
-    target_ = std::make_shared<Target>();
+    if (armor.number == "outpost") {
+        target_ = std::make_shared<OutpostTarget>();
+        RCLCPP_INFO(rclcpp::get_logger("tracker"), "Initializing OutpostTarget.");
+    } else {
+        target_ = std::make_shared<RobotTarget>();
+        RCLCPP_INFO(rclcpp::get_logger("tracker"), "Initializing RobotTarget.");
+    }
     target_->setUKFParams(ukf_alpha_, ukf_beta_, ukf_kappa_);
     target_->updateParams(q_x_, q_y_, q_z_, q_vx_, q_vy_, q_vz_, q_yaw_, q_v_yaw_, q_geo_, r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_, adaptive_tracking_, q_alpha_, dist_scale_coeff_, z_scale_coeff_);
     target_->init(armor);

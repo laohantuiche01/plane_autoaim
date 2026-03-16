@@ -29,7 +29,8 @@ ament_auto_add_library(${PROJECT_NAME} SHARED
         src/graph_optimizer.cpp
         src/light_corner_corrector.cpp
         src/number_classifier.cpp
-        src/target.cpp
+        src/robot_target.cpp
+        src/outpost_target.cpp
         src/tracker.cpp
         src/armor_solver_node.cpp
 )

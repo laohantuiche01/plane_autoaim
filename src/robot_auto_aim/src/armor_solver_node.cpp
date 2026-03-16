@@ -214,13 +214,21 @@ void ArmorSolverNode::timerCallback() {
         state_msg.y = state(2); state_msg.v_y = state(3);
         state_msg.z = state(4); state_msg.v_z = state(5);
         state_msg.yaw = state(6); state_msg.v_yaw = state(7);
-        state_msg.r = state(8); state_msg.l = state(9); state_msg.h = state(10);
+        state_msg.r = state(8);
         
         state_msg.p_x = cov(0,0); state_msg.p_vx = cov(1,1);
         state_msg.p_y = cov(2,2); state_msg.p_vy = cov(3,3);
         state_msg.p_z = cov(4,4); state_msg.p_vz = cov(5,5);
         state_msg.p_yaw = cov(6,6); state_msg.p_vyaw = cov(7,7);
-        state_msg.p_r = cov(8,8); state_msg.p_l = cov(9,9); state_msg.p_h = cov(10,10);
+        state_msg.p_r = cov(8,8);
+
+        if (target->getArmorNum() == 4) {
+            state_msg.l = state(9); state_msg.h = state(10);
+            state_msg.p_l = cov(9,9); state_msg.p_h = cov(10,10);
+        } else {
+            state_msg.l = 0.0; state_msg.h = 0.0;
+            state_msg.p_l = 0.0; state_msg.p_h = 0.0;
+        }
         
         target_state_pub_->publish(state_msg);
 
@@ -233,7 +241,7 @@ void ArmorSolverNode::timerCallback() {
     }
 }
 
-void ArmorSolverNode::publishMarkers(const std::shared_ptr<Target>& target, const std_msgs::msg::Header& header) {
+void ArmorSolverNode::publishMarkers(const std::shared_ptr<TargetBase>& target, const std_msgs::msg::Header& header) {
     visualization_msgs::msg::MarkerArray marker_array;
     auto state = target->getPredictedState(header.stamp);
 
@@ -255,39 +263,78 @@ void ArmorSolverNode::publishMarkers(const std::shared_ptr<Target>& target, cons
     // Armor markers
     double yaw = state(6);
     double r = state(8);
-    double l = state(9);
-    double h_val = state(10);
-    
-    for (size_t i = 0; i < 4; ++i) {
-        visualization_msgs::msg::Marker armor_marker;
-        armor_marker.header = header;
-        armor_marker.ns = "armors";
-        armor_marker.id = i;
-        armor_marker.type = visualization_msgs::msg::Marker::CUBE;
-        armor_marker.action = visualization_msgs::msg::Marker::ADD;
-        
-        double angle = yaw + i * M_PI / 2.0;
+
+    int armor_num = target->getArmorNum();
+
+    std::vector<geometry_msgs::msg::Point> armor_positions;
+
+    for (int i = 0; i < armor_num; ++i) {
+    visualization_msgs::msg::Marker armor_marker;
+    armor_marker.header = header;
+    armor_marker.ns = "armors";
+    armor_marker.id = i;
+    armor_marker.type = visualization_msgs::msg::Marker::CUBE;
+    armor_marker.action = visualization_msgs::msg::Marker::ADD;
+
+    double angle;
+    double current_z;
+
+    geometry_msgs::msg::Point p;
+
+    if (armor_num == 3) { // Outpost
+        angle = yaw + i * 2.0 * M_PI / 3.0;
+        p.x = state(0) - r * std::cos(angle);
+        p.y = state(2) - r * std::sin(angle);
+        p.z = state(4) - i * 0.102;
+        armor_positions.push_back(p);
+    } else { // Robot
+        double l = state(9);
+        double h_val = state(10);
+        angle = yaw + i * M_PI / 2.0;
         double current_r = (i % 2 == 0) ? r : r + l;
-        double current_z = (i % 2 == 0) ? state(4) : state(4) + h_val;
-        
-        armor_marker.pose.position.x = state(0) - current_r * std::cos(angle);
-        armor_marker.pose.position.y = state(2) - current_r * std::sin(angle);
-        armor_marker.pose.position.z = current_z;
-        
-        tf2::Quaternion q;
-        q.setRPY(0, 0, angle);
-        armor_marker.pose.orientation = tf2::toMsg(q);
-        
-        armor_marker.scale.x = 0.02;
-        armor_marker.scale.y = 0.135;
-        armor_marker.scale.z = 0.06;
-        armor_marker.color.a = 1.0;
-        armor_marker.color.r = 1.0;
-        marker_array.markers.push_back(armor_marker);
+        current_z = (i % 2 == 0) ? state(4) : state(4) + h_val;
+        p.x = state(0) - current_r * std::cos(angle);
+        p.y = state(2) - current_r * std::sin(angle);
+        p.z = current_z;
+        armor_positions.push_back(p); // Also store for general purpose, though not used in this block for lines
     }
 
-    marker_pub_->publish(marker_array);
-}
+    armor_marker.pose.position = p;
+
+    tf2::Quaternion q;
+    q.setRPY(0, 0, angle);
+    armor_marker.pose.orientation = tf2::toMsg(q);
+
+    armor_marker.scale.x = 0.02;
+    armor_marker.scale.y = 0.135;
+    armor_marker.scale.z = 0.06;
+    armor_marker.color.a = 1.0;
+    armor_marker.color.r = 1.0;
+    marker_array.markers.push_back(armor_marker);
+    }
+
+    if (armor_num == 3 && armor_positions.size() == 3) {
+    visualization_msgs::msg::Marker line_list;
+    line_list.header = header;
+    line_list.ns = "outpost_lines";
+    line_list.id = 0;
+    line_list.type = visualization_msgs::msg::Marker::LINE_LIST;
+    line_list.action = visualization_msgs::msg::Marker::ADD;
+    line_list.pose.orientation.w = 1.0;
+    line_list.scale.x = 0.01; // Line width
+    line_list.color.a = 1.0;
+    line_list.color.b = 1.0; // Blue color for lines
+
+    line_list.points.push_back(armor_positions[0]);
+    line_list.points.push_back(armor_positions[1]);
+    line_list.points.push_back(armor_positions[1]);
+    line_list.points.push_back(armor_positions[2]);
+    line_list.points.push_back(armor_positions[2]);
+    line_list.points.push_back(armor_positions[0]);
+    marker_array.markers.push_back(line_list);
+    }
+
+    marker_pub_->publish(marker_array);}
 
 void ArmorSolverNode::updateTrackerParams() {
     tracker_->updateParams(q_x_, q_y_, q_z_, q_vx_, q_vy_, q_vz_, q_yaw_, q_v_yaw_, q_geo_, r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_, adaptive_tracking_, q_alpha_, dist_scale_coeff_, z_scale_coeff_);
