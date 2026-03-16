@@ -1,29 +1,33 @@
 import os
+from datetime import datetime
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, SetEnvironmentVariable
+from launch.actions import DeclareLaunchArgument, SetEnvironmentVariable, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import ComposableNodeContainer, Node
 from launch_ros.descriptions import ComposableNode
 
-def generate_launch_description():
+def launch_setup(context, *args, **kwargs):
     # ---------------------------------------------------------
-    # Arguments
+    # Configurations
     # ---------------------------------------------------------
-    robot_type_arg = DeclareLaunchArgument(
-        'robot_type',
-        default_value='default',
-        description='Type of the robot (e.g., sentry, infantry_3, infantry_4, hero)'
-    )
-
-    # ---------------------------------------------------------
-    # Paths
-    # ---------------------------------------------------------
-    bringup_dir = get_package_share_directory('robot_bringup')
+    robot_type = LaunchConfiguration('robot_type').perform(context)
+    use_file_log = LaunchConfiguration('use_file_log').perform(context).lower() == 'true'
+    log_path_base = LaunchConfiguration('log_path').perform(context)
     
-    # Path to parameter file based on robot_type
-    params_file = LaunchConfiguration('robot_type', default='default')
-    params_path = [os.path.join(bringup_dir, 'config'), '/', params_file, '/params.yaml']
+    bringup_dir = get_package_share_directory('robot_bringup')
+    params_path = os.path.join(bringup_dir, 'config', robot_type, 'params.yaml')
+
+    # Setup log directory with timestamp if file logging is enabled
+    ros_log_dir = os.environ.get('ROS_LOG_DIR', os.path.expanduser('~/.ros/log'))
+    if use_file_log:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        full_log_path = os.path.join(os.path.expanduser(log_path_base), timestamp)
+        if not os.path.exists(full_log_path):
+            os.makedirs(full_log_path, exist_ok=True)
+        # Point ROS 2 logging to this directory
+        os.environ['ROS_LOG_DIR'] = full_log_path
+        print(f"Logging to: {full_log_path}")
 
     # ---------------------------------------------------------
     # Vision Pipeline Container (Intra-process / Zero-copy)
@@ -34,7 +38,6 @@ def generate_launch_description():
         package='rclcpp_components',
         executable='component_container',
         composable_node_descriptions=[
-            # Camera Driver
             ComposableNode(
                 package='hik_camera_driver',
                 plugin='HikCameraDriver',
@@ -42,7 +45,6 @@ def generate_launch_description():
                 parameters=[params_path],
                 extra_arguments=[{'use_intra_process_comms': True}]
             ),
-            # Armor Detector
             ComposableNode(
                 package='robot_auto_aim',
                 plugin='robot_auto_aim::ArmorDetectorNode',
@@ -50,7 +52,6 @@ def generate_launch_description():
                 parameters=[params_path],
                 extra_arguments=[{'use_intra_process_comms': True}]
             ),
-            # Armor Solver
             ComposableNode(
                 package='robot_auto_aim',
                 plugin='robot_auto_aim::ArmorSolverNode',
@@ -58,7 +59,6 @@ def generate_launch_description():
                 parameters=[params_path],
                 extra_arguments=[{'use_intra_process_comms': True}]
             ),
-            # Ballistics Node
             ComposableNode(
                 package='robot_ballistics',
                 plugin='robot_ballistics::BallisticsNode',
@@ -68,32 +68,55 @@ def generate_launch_description():
             ),
         ],
         output='both',
-        # Auto-restart the whole container if it crashes
         respawn=True,
         respawn_delay=2.0,
     )
 
     # ---------------------------------------------------------
-    # Standalone Nodes (Management / Communication)
+    # Standalone Nodes
     # ---------------------------------------------------------
     manager_node = Node(
         package='robot_manager',
         executable='manager_component_node',
         name='robot_manager',
         parameters=[params_path],
-        output='screen',
+        output='both',
         respawn=True,
         respawn_delay=2.0,
     )
 
-    # ---------------------------------------------------------
-    # Environment Setup for Zero-Copy (FastDDS / CycloneDDS)
-    # ---------------------------------------------------------
-    # Note: Inter-process zero-copy usually requires specific RMW configuration.
-    # We enable intra-process here, which is standard for high-bandwidth image data in a container.
+    return [vision_container, manager_node]
+
+def generate_launch_description():
+    # Environment Variables for detailed logging
+    env_format = SetEnvironmentVariable(
+        'RCUTILS_CONSOLE_OUTPUT_FORMAT', 
+        '[{date_time_with_ms}] [{severity}] [{name}] [{file_name}:{line_number} ({function_name})]: {message}'
+    )
+    env_color = SetEnvironmentVariable('RCUTILS_COLORIZED_OUTPUT', '1')
+
+    # Arguments
+    robot_type_arg = DeclareLaunchArgument(
+        'robot_type',
+        default_value='default',
+        description='Type of the robot (default, sentry, infantry_3, infantry_4)'
+    )
+    use_file_log_arg = DeclareLaunchArgument(
+        'use_file_log',
+        default_value='true',
+        description='Whether to save logs to file'
+    )
+    log_path_arg = DeclareLaunchArgument(
+        'log_path',
+        default_value='~/ckyf_vision_log',
+        description='Base directory for logs'
+    )
     
     return LaunchDescription([
+        env_format,
+        env_color,
         robot_type_arg,
-        vision_container,
-        manager_node
+        use_file_log_arg,
+        log_path_arg,
+        OpaqueFunction(function=launch_setup)
     ])
