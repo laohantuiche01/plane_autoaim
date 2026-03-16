@@ -14,8 +14,6 @@ Tracker::Tracker(rclcpp::Clock::SharedPtr clock, double max_lost_duration, int m
       min_detect_count_(min_detect_count),
       last_seen_time_(0),
       detect_count_(0),
-      adaptive_tracking_(false),
-      q_alpha_(0.1),
       ukf_alpha_(0.001),
       ukf_beta_(2.0),
       ukf_kappa_(0.0) {
@@ -99,12 +97,14 @@ void Tracker::initTarget(const TrackerArmor& armor) {
     if (armor.number == "outpost") {
         target_ = std::make_shared<OutpostTarget>();
         RCLCPP_INFO(rclcpp::get_logger("tracker"), "Initializing OutpostTarget.");
+        target_->setUKFParams(ukf_alpha_, ukf_beta_, ukf_kappa_);
+        target_->updateParams(outpost_params_);
     } else {
         target_ = std::make_shared<RobotTarget>();
         RCLCPP_INFO(rclcpp::get_logger("tracker"), "Initializing RobotTarget.");
+        target_->setUKFParams(ukf_alpha_, ukf_beta_, ukf_kappa_);
+        target_->updateParams(robot_params_);
     }
-    target_->setUKFParams(ukf_alpha_, ukf_beta_, ukf_kappa_);
-    target_->updateParams(q_x_, q_y_, q_z_, q_vx_, q_vy_, q_vz_, q_yaw_, q_v_yaw_, q_geo_, r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_, adaptive_tracking_, q_alpha_, dist_scale_coeff_, z_scale_coeff_);
     target_->init(armor);
 }
 
@@ -125,26 +125,16 @@ bool Tracker::updateTarget(const std::vector<TrackerArmor>& armors, const rclcpp
     return found;
 }
 
-void Tracker::updateParams(double q_x, double q_y, double q_z, 
-                          double q_vx, double q_vy, double q_vz,
-                          double q_yaw, double q_v_yaw, double q_geo,
-                          double r_x, double r_y, double r_z, double r_yaw, 
-                          double r_yaw_adaptive_factor,
-                          bool adaptive_tracking, double q_alpha,
-                          double dist_scale_coeff, double z_scale_coeff) {
-    q_x_ = q_x; q_y_ = q_y; q_z_ = q_z;
-    q_vx_ = q_vx; q_vy_ = q_vy; q_vz_ = q_vz;
-    q_yaw_ = q_yaw; q_v_yaw_ = q_v_yaw; q_geo_ = q_geo;
-    r_x_ = r_x; r_y_ = r_y; r_z_ = r_z;
-    r_yaw_ = r_yaw;
-    r_yaw_adaptive_factor_ = r_yaw_adaptive_factor;
-    adaptive_tracking_ = adaptive_tracking;
-    q_alpha_ = q_alpha;
-    dist_scale_coeff_ = dist_scale_coeff;
-    z_scale_coeff_ = z_scale_coeff;
+void Tracker::updateParams(const TargetParams& robot_params, const TargetParams& outpost_params) {
+    robot_params_ = robot_params;
+    outpost_params_ = outpost_params;
     
     if (target_) {
-        target_->updateParams(q_x, q_y, q_z, q_vx, q_vy, q_vz, q_yaw, q_v_yaw, q_geo, r_x, r_y, r_z, r_yaw, r_yaw_adaptive_factor, adaptive_tracking, q_alpha, dist_scale_coeff, z_scale_coeff);
+        if (target_->getName() == "outpost") {
+            target_->updateParams(outpost_params_);
+        } else {
+            target_->updateParams(robot_params_);
+        }
     }
 }
 

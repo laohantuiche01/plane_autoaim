@@ -42,13 +42,9 @@ private:
 
     // Params
     std::string odom_frame_;
-    double q_x_, q_y_, q_z_;
-    double q_vx_, q_vy_, q_vz_;
-    double q_yaw_, q_v_yaw_, q_geo_;
-    double r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_;
-    double dist_scale_coeff_, z_scale_coeff_;
-    bool adaptive_tracking_;
-    double q_alpha_;
+    TargetParams robot_params_;
+    TargetParams outpost_params_;
+
     double ukf_alpha_, ukf_beta_, ukf_kappa_;
     
     // Timer

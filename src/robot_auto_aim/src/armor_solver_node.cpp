@@ -18,29 +18,33 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
     double max_lost_duration = declare_parameter("max_lost_duration", 1.0);
     int min_detect_count = declare_parameter("min_detect_count", 5);
 
-    // Q Params (Process Noise)
-    q_x_ = declare_parameter("q_x", 0.001);
-    q_y_ = declare_parameter("q_y", 0.001);
-    q_z_ = declare_parameter("q_z", 0.001);
-    q_vx_ = declare_parameter("q_vx", 0.1);
-    q_vy_ = declare_parameter("q_vy", 0.01);
-    q_vz_ = declare_parameter("q_vz", 0.1);
-    q_yaw_ = declare_parameter("q_yaw", 0.01);
-    q_v_yaw_ = declare_parameter("q_v_yaw", 0.001);
-    q_geo_ = declare_parameter("q_geo", 0.0001);
+    auto declare_target_params = [this](const std::string& prefix, TargetParams& params, bool has_velocity) {
+        params.q_x = declare_parameter(prefix + ".q_x", 0.001);
+        params.q_y = declare_parameter(prefix + ".q_y", 0.001);
+        params.q_z = declare_parameter(prefix + ".q_z", 0.001);
+        if (has_velocity) {
+            params.q_vx = declare_parameter(prefix + ".q_vx", 0.1);
+            params.q_vy = declare_parameter(prefix + ".q_vy", 0.1);
+            params.q_vz = declare_parameter(prefix + ".q_vz", 0.1);
+        } else {
+            params.q_vx = 0.0; params.q_vy = 0.0; params.q_vz = 0.0;
+        }
+        params.q_yaw = declare_parameter(prefix + ".q_yaw", 0.01);
+        params.q_v_yaw = declare_parameter(prefix + ".q_v_yaw", 0.1);
+        params.q_geo = declare_parameter(prefix + ".q_geo", 0.0001);
+        params.r_x = declare_parameter(prefix + ".r_x", 0.5);
+        params.r_y = declare_parameter(prefix + ".r_y", 0.5);
+        params.r_z = declare_parameter(prefix + ".r_z", 0.5);
+        params.r_yaw = declare_parameter(prefix + ".r_yaw", 0.05);
+        params.r_yaw_adaptive_factor = declare_parameter(prefix + ".r_yaw_adaptive_factor", 50.0);
+        params.adaptive_tracking = declare_parameter(prefix + ".adaptive_tracking", false);
+        params.q_alpha = declare_parameter(prefix + ".q_alpha", 0.1);
+        params.dist_scale_coeff = declare_parameter(prefix + ".dist_scale_coeff", 0.1);
+        params.z_scale_coeff = declare_parameter(prefix + ".z_scale_coeff", 5.0);
+    };
 
-    // R Params (Measurement Noise)
-    r_x_ = declare_parameter("r_x", 0.5);
-    r_y_ = declare_parameter("r_y", 0.5);
-    r_z_ = declare_parameter("r_z", 0.5);
-    r_yaw_ = declare_parameter("r_yaw", 0.05);
-    r_yaw_adaptive_factor_ = declare_parameter("r_yaw_adaptive_factor", 50.0);
-    dist_scale_coeff_ = declare_parameter("dist_scale_coeff", 0.1);
-    z_scale_coeff_ = declare_parameter("z_scale_coeff", 5.0);
-    
-    // Adaptive Tracking Params
-    adaptive_tracking_ = declare_parameter("adaptive_tracking", false);
-    q_alpha_ = declare_parameter("q_alpha", 0.1);
+    declare_target_params("robot", robot_params_, true);
+    declare_target_params("outpost", outpost_params_, false);
     
     // UKF Hyperparams
     ukf_alpha_ = declare_parameter("ukf_alpha", 0.001);
@@ -54,40 +58,50 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
     // Parameter callback
     on_set_parameters_callback_handle_ = this->add_on_set_parameters_callback(
         [this](const std::vector<rclcpp::Parameter>& parameters) {
-            RCLCPP_INFO(this->get_logger(), "Parameters updating... Resetting tracker to prevent anomalies.");
             rcl_interfaces::msg::SetParametersResult result;
             result.successful = true;
             bool should_reset = false;
+
+            auto update_param = [](const rclcpp::Parameter& param, const std::string& prefix, TargetParams& params, bool has_velocity) {
+                const auto& name = param.get_name();
+                if (name.find(prefix + ".") != 0) return false;
+                std::string key = name.substr(prefix.length() + 1);
+                if (key == "q_x") params.q_x = param.as_double();
+                else if (key == "q_y") params.q_y = param.as_double();
+                else if (key == "q_z") params.q_z = param.as_double();
+                else if (has_velocity && key == "q_vx") params.q_vx = param.as_double();
+                else if (has_velocity && key == "q_vy") params.q_vy = param.as_double();
+                else if (has_velocity && key == "q_vz") params.q_vz = param.as_double();
+                else if (key == "q_yaw") params.q_yaw = param.as_double();
+                else if (key == "q_v_yaw") params.q_v_yaw = param.as_double();
+                else if (key == "q_geo") params.q_geo = param.as_double();
+                else if (key == "r_x") params.r_x = param.as_double();
+                else if (key == "r_y") params.r_y = param.as_double();
+                else if (key == "r_z") params.r_z = param.as_double();
+                else if (key == "r_yaw") params.r_yaw = param.as_double();
+                else if (key == "r_yaw_adaptive_factor") params.r_yaw_adaptive_factor = param.as_double();
+                else if (key == "adaptive_tracking") params.adaptive_tracking = param.as_bool();
+                else if (key == "q_alpha") params.q_alpha = param.as_double();
+                else if (key == "dist_scale_coeff") params.dist_scale_coeff = param.as_double();
+                else if (key == "z_scale_coeff") params.z_scale_coeff = param.as_double();
+                else return false;
+                return true;
+            };
+
             for (const auto& param : parameters) {
-                if (param.get_name() == "q_x") q_x_ = param.as_double();
-                else if (param.get_name() == "q_y") q_y_ = param.as_double();
-                else if (param.get_name() == "q_z") q_z_ = param.as_double();
-                else if (param.get_name() == "q_vx") q_vx_ = param.as_double();
-                else if (param.get_name() == "q_vy") q_vy_ = param.as_double();
-                else if (param.get_name() == "q_vz") q_vz_ = param.as_double();
-                else if (param.get_name() == "q_yaw") q_yaw_ = param.as_double();
-                else if (param.get_name() == "q_v_yaw") q_v_yaw_ = param.as_double();
-                else if (param.get_name() == "q_geo") q_geo_ = param.as_double();
-                else if (param.get_name() == "r_x") r_x_ = param.as_double();
-                else if (param.get_name() == "r_y") r_y_ = param.as_double();
-                else if (param.get_name() == "r_z") r_z_ = param.as_double();
-                else if (param.get_name() == "r_yaw") r_yaw_ = param.as_double();
-                else if (param.get_name() == "r_yaw_adaptive_factor") r_yaw_adaptive_factor_ = param.as_double();
-                else if (param.get_name() == "dist_scale_coeff") dist_scale_coeff_ = param.as_double();
-                else if (param.get_name() == "z_scale_coeff") z_scale_coeff_ = param.as_double();
-                else if (param.get_name() == "adaptive_tracking") adaptive_tracking_ = param.as_bool();
-                else if (param.get_name() == "q_alpha") q_alpha_ = param.as_double();
-                else if (param.get_name() == "ukf_alpha") ukf_alpha_ = param.as_double();
-                else if (param.get_name() == "ukf_beta") ukf_beta_ = param.as_double();
-                else if (param.get_name() == "ukf_kappa") ukf_kappa_ = param.as_double();
+                if (update_param(param, "robot", robot_params_, true)) should_reset = true;
+                else if (update_param(param, "outpost", outpost_params_, false)) should_reset = true;
+                else if (param.get_name() == "ukf_alpha") { ukf_alpha_ = param.as_double(); should_reset = true; }
+                else if (param.get_name() == "ukf_beta") { ukf_beta_ = param.as_double(); should_reset = true; }
+                else if (param.get_name() == "ukf_kappa") { ukf_kappa_ = param.as_double(); should_reset = true; }
                 else if (param.get_name() == "max_lost_duration") tracker_->setMaxLostDuration(param.as_double());
                 else if (param.get_name() == "min_detect_count") tracker_->setMinDetectCount(param.as_int());
-                
-                should_reset = true;
             }
-            updateTrackerParams();
-            tracker_->updateUKFParams(ukf_alpha_, ukf_beta_, ukf_kappa_);
+
             if (should_reset) {
+                RCLCPP_INFO(this->get_logger(), "Parameters updating... Resetting tracker.");
+                updateTrackerParams();
+                tracker_->updateUKFParams(ukf_alpha_, ukf_beta_, ukf_kappa_);
                 tracker_->reset();
             }
             return result;
@@ -203,33 +217,48 @@ void ArmorSolverNode::timerCallback() {
         aim_msg.header.stamp = now;
         aim_msg.header.frame_id = odom_frame_;
         aim_msg.success = (tracker_->getState() == Tracker::State::TRACKING);
-        aim_msg.yaw = state(6);
         
-        aim_pub_->publish(aim_msg);
-
         // Publish state for debugging
         robot_interfaces::msg::TargetState state_msg;
         state_msg.header = aim_msg.header;
-        state_msg.x = state(0); state_msg.v_x = state(1);
-        state_msg.y = state(2); state_msg.v_y = state(3);
-        state_msg.z = state(4); state_msg.v_z = state(5);
-        state_msg.yaw = state(6); state_msg.v_yaw = state(7);
-        state_msg.r = state(8);
-        
-        state_msg.p_x = cov(0,0); state_msg.p_vx = cov(1,1);
-        state_msg.p_y = cov(2,2); state_msg.p_vy = cov(3,3);
-        state_msg.p_z = cov(4,4); state_msg.p_vz = cov(5,5);
-        state_msg.p_yaw = cov(6,6); state_msg.p_vyaw = cov(7,7);
-        state_msg.p_r = cov(8,8);
 
-        if (target->getArmorNum() == 4) {
-            state_msg.l = state(9); state_msg.h = state(10);
-            state_msg.p_l = cov(9,9); state_msg.p_h = cov(10,10);
-        } else {
-            state_msg.l = 0.0; state_msg.h = 0.0;
-            state_msg.p_l = 0.0; state_msg.p_h = 0.0;
+        if (target->getArmorNum() == 3) { // Outpost
+            aim_msg.yaw = state(3);
+            state_msg.x = state(0); state_msg.v_x = 0;
+            state_msg.y = state(1); state_msg.v_y = 0;
+            state_msg.z = state(2); state_msg.v_z = 0;
+            state_msg.yaw = state(3); state_msg.v_yaw = state(4);
+            state_msg.r = state(5);
+            state_msg.l = 0;
+            state_msg.h = state(6);
+            
+            state_msg.p_x = cov(0,0); state_msg.p_vx = 0;
+            state_msg.p_y = cov(1,1); state_msg.p_vy = 0;
+            state_msg.p_z = cov(2,2); state_msg.p_vz = 0;
+            state_msg.p_yaw = cov(3,3); state_msg.p_vyaw = cov(4,4);
+            state_msg.p_r = cov(5,5);
+            state_msg.p_l = 0;
+            state_msg.p_h = cov(6,6);
+        } else { // Robot
+            aim_msg.yaw = state(6);
+            state_msg.x = state(0); state_msg.v_x = state(1);
+            state_msg.y = state(2); state_msg.v_y = state(3);
+            state_msg.z = state(4); state_msg.v_z = state(5);
+            state_msg.yaw = state(6); state_msg.v_yaw = state(7);
+            state_msg.r = state(8);
+            state_msg.l = state(9);
+            state_msg.h = state(10);
+            
+            state_msg.p_x = cov(0,0); state_msg.p_vx = cov(1,1);
+            state_msg.p_y = cov(2,2); state_msg.p_vy = cov(3,3);
+            state_msg.p_z = cov(4,4); state_msg.p_vz = cov(5,5);
+            state_msg.p_yaw = cov(6,6); state_msg.p_vyaw = cov(7,7);
+            state_msg.p_r = cov(8,8);
+            state_msg.p_l = cov(9,9);
+            state_msg.p_h = cov(10,10);
         }
         
+        aim_pub_->publish(aim_msg);
         target_state_pub_->publish(state_msg);
 
         publishMarkers(target, aim_msg.header);
@@ -252,92 +281,105 @@ void ArmorSolverNode::publishMarkers(const std::shared_ptr<TargetBase>& target, 
     center_marker.id = 0;
     center_marker.type = visualization_msgs::msg::Marker::SPHERE;
     center_marker.action = visualization_msgs::msg::Marker::ADD;
-    center_marker.pose.position.x = state(0);
-    center_marker.pose.position.y = state(2);
-    center_marker.pose.position.z = state(4);
+    
+    int armor_num = target->getArmorNum();
+    if (armor_num == 3) {
+        center_marker.pose.position.x = state(0);
+        center_marker.pose.position.y = state(1);
+        center_marker.pose.position.z = state(2);
+    } else {
+        center_marker.pose.position.x = state(0);
+        center_marker.pose.position.y = state(2);
+        center_marker.pose.position.z = state(4);
+    }
+    
     center_marker.scale.x = center_marker.scale.y = center_marker.scale.z = 0.1;
     center_marker.color.a = 1.0;
     center_marker.color.g = 1.0;
     marker_array.markers.push_back(center_marker);
 
     // Armor markers
-    double yaw = state(6);
-    double r = state(8);
-
-    int armor_num = target->getArmorNum();
+    double yaw, r;
+    if (armor_num == 3) {
+        yaw = state(3);
+        r = state(5);
+    } else {
+        yaw = state(6);
+        r = state(8);
+    }
 
     std::vector<geometry_msgs::msg::Point> armor_positions;
 
     for (int i = 0; i < armor_num; ++i) {
-    visualization_msgs::msg::Marker armor_marker;
-    armor_marker.header = header;
-    armor_marker.ns = "armors";
-    armor_marker.id = i;
-    armor_marker.type = visualization_msgs::msg::Marker::CUBE;
-    armor_marker.action = visualization_msgs::msg::Marker::ADD;
+        visualization_msgs::msg::Marker armor_marker;
+        armor_marker.header = header;
+        armor_marker.ns = "armors";
+        armor_marker.id = i;
+        armor_marker.type = visualization_msgs::msg::Marker::CUBE;
+        armor_marker.action = visualization_msgs::msg::Marker::ADD;
 
-    double angle;
-    double current_z;
+        double angle;
+        geometry_msgs::msg::Point p;
 
-    geometry_msgs::msg::Point p;
+        if (armor_num == 3) { // Outpost
+            double h = state(6);
+            angle = yaw + i * 2.0 * M_PI / 3.0;
+            p.x = state(0) - r * std::cos(angle);
+            p.y = state(1) - r * std::sin(angle);
+            p.z = state(2) - i * h;
+            armor_positions.push_back(p);
+        } else { // Robot
+            double l = state(9);
+            double h_val = state(10);
+            angle = yaw + i * M_PI / 2.0;
+            double current_r = (i % 2 == 0) ? r : r + l;
+            double current_z = (i % 2 == 0) ? state(4) : state(4) + h_val;
+            p.x = state(0) - current_r * std::cos(angle);
+            p.y = state(2) - current_r * std::sin(angle);
+            p.z = current_z;
+            armor_positions.push_back(p);
+        }
 
-    if (armor_num == 3) { // Outpost
-        angle = yaw + i * 2.0 * M_PI / 3.0;
-        p.x = state(0) - r * std::cos(angle);
-        p.y = state(2) - r * std::sin(angle);
-        p.z = state(4) - i * 0.102;
-        armor_positions.push_back(p);
-    } else { // Robot
-        double l = state(9);
-        double h_val = state(10);
-        angle = yaw + i * M_PI / 2.0;
-        double current_r = (i % 2 == 0) ? r : r + l;
-        current_z = (i % 2 == 0) ? state(4) : state(4) + h_val;
-        p.x = state(0) - current_r * std::cos(angle);
-        p.y = state(2) - current_r * std::sin(angle);
-        p.z = current_z;
-        armor_positions.push_back(p); // Also store for general purpose, though not used in this block for lines
-    }
+        armor_marker.pose.position = p;
 
-    armor_marker.pose.position = p;
+        tf2::Quaternion q;
+        q.setRPY(0, 0, angle);
+        armor_marker.pose.orientation = tf2::toMsg(q);
 
-    tf2::Quaternion q;
-    q.setRPY(0, 0, angle);
-    armor_marker.pose.orientation = tf2::toMsg(q);
-
-    armor_marker.scale.x = 0.02;
-    armor_marker.scale.y = 0.135;
-    armor_marker.scale.z = 0.06;
-    armor_marker.color.a = 1.0;
-    armor_marker.color.r = 1.0;
-    marker_array.markers.push_back(armor_marker);
+        armor_marker.scale.x = 0.02;
+        armor_marker.scale.y = 0.135;
+        armor_marker.scale.z = 0.06;
+        armor_marker.color.a = 1.0;
+        armor_marker.color.r = 1.0;
+        marker_array.markers.push_back(armor_marker);
     }
 
     if (armor_num == 3 && armor_positions.size() == 3) {
-    visualization_msgs::msg::Marker line_list;
-    line_list.header = header;
-    line_list.ns = "outpost_lines";
-    line_list.id = 0;
-    line_list.type = visualization_msgs::msg::Marker::LINE_LIST;
-    line_list.action = visualization_msgs::msg::Marker::ADD;
-    line_list.pose.orientation.w = 1.0;
-    line_list.scale.x = 0.01; // Line width
-    line_list.color.a = 1.0;
-    line_list.color.b = 1.0; // Blue color for lines
+        visualization_msgs::msg::Marker line_list;
+        line_list.header = header;
+        line_list.ns = "outpost_lines";
+        line_list.id = 0;
+        line_list.type = visualization_msgs::msg::Marker::LINE_LIST;
+        line_list.action = visualization_msgs::msg::Marker::ADD;
+        line_list.pose.orientation.w = 1.0;
+        line_list.scale.x = 0.01; // Line width
+        line_list.color.a = 1.0;
+        line_list.color.b = 1.0; // Blue color for lines
 
-    line_list.points.push_back(armor_positions[0]);
-    line_list.points.push_back(armor_positions[1]);
-    line_list.points.push_back(armor_positions[1]);
-    line_list.points.push_back(armor_positions[2]);
-    line_list.points.push_back(armor_positions[2]);
-    line_list.points.push_back(armor_positions[0]);
-    marker_array.markers.push_back(line_list);
+        line_list.points.push_back(armor_positions[0]);
+        line_list.points.push_back(armor_positions[1]);
+        line_list.points.push_back(armor_positions[1]);
+        line_list.points.push_back(armor_positions[2]);
+        line_list.points.push_back(armor_positions[2]);
+        line_list.points.push_back(armor_positions[0]);
+        marker_array.markers.push_back(line_list);
     }
 
-    marker_pub_->publish(marker_array);}
+    marker_pub_->publish(marker_array);
+}
 
 void ArmorSolverNode::updateTrackerParams() {
-    tracker_->updateParams(q_x_, q_y_, q_z_, q_vx_, q_vy_, q_vz_, q_yaw_, q_v_yaw_, q_geo_, r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_, adaptive_tracking_, q_alpha_, dist_scale_coeff_, z_scale_coeff_);
+    tracker_->updateParams(robot_params_, outpost_params_);
 }
 
 } // namespace robot_auto_aim

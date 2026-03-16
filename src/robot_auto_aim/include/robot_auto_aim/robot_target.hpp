@@ -19,23 +19,17 @@ public:
 
     bool update(const TrackerArmor& armor) override;
 
-    void updateParams(double q_x, double q_y, double q_z, 
-                      double q_vx, double q_vy, double q_vz,
-                      double q_yaw, double q_v_yaw, double q_geo,
-                      double r_x, double r_y, double r_z, double r_yaw, 
-                      double r_yaw_adaptive_factor,
-                      bool adaptive_tracking, double q_alpha,
-                      double dist_scale_coeff, double z_scale_coeff) override {
-        q_x_ = q_x; q_y_ = q_y; q_z_ = q_z;
-        q_vx_ = q_vx; q_vy_ = q_vy; q_vz_ = q_vz;
-        q_yaw_ = q_yaw; q_v_yaw_ = q_v_yaw; q_geo_ = q_geo;
-        r_x_ = r_x; r_y_ = r_y; r_z_ = r_z;
-        r_yaw_ = r_yaw;
-        r_yaw_adaptive_factor_ = r_yaw_adaptive_factor;
-        adaptive_tracking_ = adaptive_tracking;
-        q_alpha_ = q_alpha;
-        dist_scale_coeff_ = dist_scale_coeff;
-        z_scale_coeff_ = z_scale_coeff;
+    void updateParams(const TargetParams& params) override {
+        q_x_ = params.q_x; q_y_ = params.q_y; q_z_ = params.q_z;
+        q_vx_ = params.q_vx; q_vy_ = params.q_vy; q_vz_ = params.q_vz;
+        q_yaw_ = params.q_yaw; q_v_yaw_ = params.q_v_yaw; q_geo_ = params.q_geo;
+        r_x_ = params.r_x; r_y_ = params.r_y; r_z_ = params.r_z;
+        r_yaw_ = params.r_yaw;
+        r_yaw_adaptive_factor_ = params.r_yaw_adaptive_factor;
+        adaptive_tracking_ = params.adaptive_tracking;
+        q_alpha_ = params.q_alpha;
+        dist_scale_coeff_ = params.dist_scale_coeff;
+        z_scale_coeff_ = params.z_scale_coeff;
     }
 
     void setUKFParams(double alpha, double beta, double kappa) override {

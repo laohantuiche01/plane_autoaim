@@ -10,7 +10,7 @@ namespace robot_auto_aim {
 
 class OutpostTarget : public TargetBase {
 public:
-    static constexpr int STATE_DIM = 9; // cx,vx,cy,vy,cz,vz,yaw,v_yaw,r
+    static constexpr int STATE_DIM = 7; // cx,cy,cz,yaw,v_yaw,r,h
     static constexpr int MEAS_DIM = 4; // ax,ay,az,ayaw
 
     OutpostTarget();
@@ -21,13 +21,7 @@ public:
 
     bool update(const TrackerArmor& armor) override;
 
-    void updateParams(double q_x, double q_y, double q_z, 
-                      double q_vx, double q_vy, double q_vz,
-                      double q_yaw, double q_v_yaw, double q_geo,
-                      double r_x, double r_y, double r_z, double r_yaw, 
-                      double r_yaw_adaptive_factor,
-                      bool adaptive_tracking, double q_alpha,
-                      double dist_scale_coeff, double z_scale_coeff) override;
+    void updateParams(const TargetParams& params) override;
     
     void setUKFParams(double alpha, double beta, double kappa) override;
 
@@ -74,8 +68,7 @@ private:
 
     // Params
     double q_x_, q_y_, q_z_;
-    double q_vx_, q_vy_, q_vz_;
-    double q_yaw_, q_v_yaw_, q_geo_; // q_geo_ for radius 'r'
+    double q_yaw_, q_v_yaw_, q_geo_; // q_geo_ for radius 'r' and 'h'
     double r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_;
     double dist_scale_coeff_, z_scale_coeff_;
     

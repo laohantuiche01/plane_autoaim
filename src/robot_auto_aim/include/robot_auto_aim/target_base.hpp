@@ -22,6 +22,16 @@ struct TrackerArmor {
     rclcpp::Time timestamp;
 };
 
+struct TargetParams {
+    double q_x, q_y, q_z;
+    double q_vx, q_vy, q_vz;
+    double q_yaw, q_v_yaw, q_geo;
+    double r_x, r_y, r_z, r_yaw, r_yaw_adaptive_factor;
+    bool adaptive_tracking;
+    double q_alpha;
+    double dist_scale_coeff, z_scale_coeff;
+};
+
 class TargetBase {
 public:
     virtual ~TargetBase() = default;
@@ -30,13 +40,7 @@ public:
     virtual void predict(const rclcpp::Time& time) = 0;
     virtual bool update(const TrackerArmor& armor) = 0;
 
-    virtual void updateParams(double q_x, double q_y, double q_z, 
-                              double q_vx, double q_vy, double q_vz,
-                              double q_yaw, double q_v_yaw, double q_geo,
-                              double r_x, double r_y, double r_z, double r_yaw, 
-                              double r_yaw_adaptive_factor,
-                              bool adaptive_tracking, double q_alpha,
-                              double dist_scale_coeff, double z_scale_coeff) = 0;
+    virtual void updateParams(const TargetParams& params) = 0;
     
     virtual void setUKFParams(double alpha, double beta, double kappa) = 0;
 

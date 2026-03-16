@@ -36,13 +36,7 @@ public:
     std::string getStateString() const;
     static std::string stateToString(State state);
 
-    void updateParams(double q_x, double q_y, double q_z, 
-                      double q_vx, double q_vy, double q_vz,
-                      double q_yaw, double q_v_yaw, double q_geo,
-                      double r_x, double r_y, double r_z, double r_yaw, 
-                      double r_yaw_adaptive_factor,
-                      bool adaptive_tracking, double q_alpha,
-                      double dist_scale_coeff, double z_scale_coeff);
+    void updateParams(const TargetParams& robot_params, const TargetParams& outpost_params);
     
     void updateUKFParams(double alpha, double beta, double kappa);
     
@@ -67,13 +61,8 @@ private:
     int detect_count_;
 
     // Params
-    double q_x_, q_y_, q_z_;
-    double q_vx_, q_vy_, q_vz_;
-    double q_yaw_, q_v_yaw_, q_geo_;
-    double r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_;
-    double dist_scale_coeff_, z_scale_coeff_;
-    bool adaptive_tracking_;
-    double q_alpha_;
+    TargetParams robot_params_;
+    TargetParams outpost_params_;
     double ukf_alpha_, ukf_beta_, ukf_kappa_;
 };
 
