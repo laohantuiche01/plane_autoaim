@@ -56,7 +56,8 @@ private:
     
     // Ballistics & Trajectory Params
     double bullet_speed_;
-    double delay_offset_;
+    double hit_delay_offset_;
+    double aim_delay_offset_;
     int trajectory_num_points_;
     double trajectory_dt_;
     double trajectory_omega_low_;

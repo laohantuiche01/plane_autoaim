@@ -53,7 +53,8 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
 
     // Ballistics & Trajectory Params
     bullet_speed_ = declare_parameter("bullet_speed", 25.0);
-    delay_offset_ = declare_parameter("delay_offset", 0.0);
+    hit_delay_offset_ = declare_parameter("trajectory.hit_delay_offset", 0.0);
+    aim_delay_offset_ = declare_parameter("trajectory.aim_delay_offset", 0.0);
     trajectory_num_points_ = declare_parameter("trajectory.num_points", 11);
     trajectory_dt_ = declare_parameter("trajectory.dt", 0.05);
     trajectory_omega_low_ = declare_parameter("trajectory.omega_low", 1.5);
@@ -106,7 +107,8 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
                 else if (param.get_name() == "max_lost_duration") tracker_->setMaxLostDuration(param.as_double());
                 else if (param.get_name() == "min_detect_count") tracker_->setMinDetectCount(param.as_int());
                 else if (param.get_name() == "bullet_speed") bullet_speed_ = param.as_double();
-                else if (param.get_name() == "delay_offset") delay_offset_ = param.as_double();
+                else if (param.get_name() == "trajectory.hit_delay_offset") hit_delay_offset_ = param.as_double();
+                else if (param.get_name() == "trajectory.aim_delay_offset") aim_delay_offset_ = param.as_double();
                 else if (param.get_name() == "trajectory.num_points") trajectory_num_points_ = param.as_int();
                 else if (param.get_name() == "trajectory.dt") trajectory_dt_ = param.as_double();
                 else if (param.get_name() == "trajectory.omega_low") trajectory_omega_low_ = param.as_double();
@@ -282,12 +284,13 @@ void ArmorSolverNode::timerCallback() {
         // --- Trajectory Generation ---
         if ((tracker_->getState() == Tracker::State::TRACKING || tracker_->getState() == Tracker::State::TEMP_LOST) && target->isConverged()) {
             double pipeline_latency = (now - tracker_->getLastSeenTime()).seconds();
-            double t_predict = robot_ballistics::BallisticsCalculator::calculatePredictTime(
+            double tof = robot_ballistics::BallisticsCalculator::calculatePredictTime(
                 Eigen::Vector3d(state_msg.x, state_msg.y, state_msg.z), 
-                bullet_speed_, 
-                pipeline_latency, 
-                delay_offset_);
+                bullet_speed_, 0.0, 0.0); // Pure TOF
             
+            double t_predict_hit = tof + pipeline_latency + hit_delay_offset_;
+            double t_predict_aim = tof + pipeline_latency + aim_delay_offset_;
+
             robot_interfaces::msg::TargetTrajectory traj_msg;
             traj_msg.header = header;
             
@@ -295,101 +298,89 @@ void ArmorSolverNode::timerCallback() {
             int half_points = num_points / 2;
 
             for (int i = -half_points; i <= half_points; ++i) {
-                double dt_i = t_predict + i * trajectory_dt_;
-                auto future_state = target->getPredictedState(tracker_->getLastSeenTime() + rclcpp::Duration::from_seconds(dt_i));
-                
-                double cx, cy, cz, yaw, v_yaw, r, vx, vy, vz;
-                
-                if (target->getArmorNum() == 3) {
-                    cx = future_state(0); cy = future_state(1); cz = future_state(2);
-                    vx = 0; vy = 0; vz = 0;
-                    yaw = future_state(3); v_yaw = future_state(4); r = future_state(5);
-                } else {
-                    cx = future_state(0); cy = future_state(2); cz = future_state(4);
-                    vx = future_state(1); vy = future_state(3); vz = future_state(5);
-                    yaw = future_state(6); v_yaw = future_state(7); r = future_state(8);
-                }
+                double dt_i_hit = t_predict_hit + i * trajectory_dt_;
+                double dt_i_aim = t_predict_aim + i * trajectory_dt_;
 
-                double dir_to_origin = std::atan2(-cy, -cx);
+                auto future_state_hit = target->getPredictedState(tracker_->getLastSeenTime() + rclcpp::Duration::from_seconds(dt_i_hit));
+                auto future_state_aim = target->getPredictedState(tracker_->getLastSeenTime() + rclcpp::Duration::from_seconds(dt_i_aim));
                 
-                // --- Armor Selection & Blending ---
-                double total_weight = 0.0;
-                double blended_ax = 0.0, blended_ay = 0.0, blended_az = 0.0;
-                double max_weight = -1.0;
-                double best_ax = cx, best_ay = cy, best_az = cz;
-
-                int armor_num = target->getArmorNum();
-
-                for (int j = 0; j < armor_num; ++j) {
-                    double armor_angle, h_offset = 0;
-                    double current_r = r;
+                auto get_hit_pt = [&](const Eigen::VectorXd& state, bool blend) {
+                    double cx, cy, cz, yaw, v_yaw, r, vx, vy, vz;
+                    int armor_num = target->getArmorNum();
                     if (armor_num == 3) {
-                        armor_angle = robot_utils::normalize_angle(yaw + j * 2.0 * M_PI / 3.0);
-                        h_offset = -j * future_state(6);
+                        cx = state(0); cy = state(1); cz = state(2);
+                        vx = 0; vy = 0; vz = 0;
+                        yaw = state(3); v_yaw = state(4); r = state(5);
                     } else {
-                        armor_angle = robot_utils::normalize_angle(yaw + j * M_PI / 2.0);
-                        if (j % 2 != 0) {
-                            current_r += future_state(9);
-                            h_offset = future_state(10);
+                        cx = state(0); cy = state(2); cz = state(4);
+                        vx = state(1); vy = state(3); vz = state(5);
+                        yaw = state(6); v_yaw = state(7); r = state(8);
+                    }
+
+                    double dir_to_origin = std::atan2(-cy, -cx);
+                    double total_weight = 0.0;
+                    double blended_ax = 0.0, blended_ay = 0.0, blended_az = 0.0;
+                    double max_weight = -1.0;
+                    double best_ax = cx, best_ay = cy, best_az = cz;
+
+                    for (int j = 0; j < armor_num; ++j) {
+                        double armor_angle, h_offset = 0;
+                        double current_r = r;
+                        if (armor_num == 3) {
+                            armor_angle = robot_utils::normalize_angle(yaw + j * 2.0 * M_PI / 3.0);
+                            h_offset = -j * state(6);
+                        } else {
+                            armor_angle = robot_utils::normalize_angle(yaw + j * M_PI / 2.0);
+                            if (j % 2 != 0) {
+                                current_r += state(9);
+                                h_offset = state(10);
+                            }
+                        }
+                        double armor_facing = robot_utils::normalize_angle(armor_angle + M_PI);
+                        double angle_diff = std::abs(robot_utils::normalize_angle(dir_to_origin - armor_facing));
+                        double ax = cx - current_r * std::cos(armor_angle);
+                        double ay = cy - current_r * std::sin(armor_angle);
+                        double az = cz + h_offset;
+
+                        double weight = std::pow(std::max(0.0, std::cos(angle_diff)), trajectory_switch_concentration_);
+                        blended_ax += ax * weight; blended_ay += ay * weight; blended_az += az * weight;
+                        total_weight += weight;
+                        if (weight > max_weight) {
+                            max_weight = weight;
+                            best_ax = ax; best_ay = ay; best_az = az;
                         }
                     }
 
-                    // Armor faces outwards at armor_angle + PI in this model
-                    double armor_facing = robot_utils::normalize_angle(armor_angle + M_PI);
-                    double angle_diff = std::abs(robot_utils::normalize_angle(dir_to_origin - armor_facing));
-                    
-                    double ax = cx - current_r * std::cos(armor_angle);
-                    double ay = cy - current_r * std::sin(armor_angle);
-                    double az = cz + h_offset;
-
-                    // Use cos^n weighting for smooth blending
-                    double weight = std::pow(std::max(0.0, std::cos(angle_diff)), trajectory_switch_concentration_);
-                    
-                    blended_ax += ax * weight;
-                    blended_ay += ay * weight;
-                    blended_az += az * weight;
-                    total_weight += weight;
-
-                    if (weight > max_weight) {
-                        max_weight = weight;
-                        best_ax = ax; best_ay = ay; best_az = az;
+                    Eigen::Vector3d res;
+                    if (blend && total_weight > 1e-6) {
+                        res << blended_ax / total_weight, blended_ay / total_weight, blended_az / total_weight;
+                    } else {
+                        res << best_ax, best_ay, best_az;
                     }
-                }
 
-                if (total_weight > 1e-6) {
-                    blended_ax /= total_weight;
-                    blended_ay /= total_weight;
-                    blended_az /= total_weight;
-                } else {
-                    blended_ax = cx; blended_ay = cy; blended_az = cz;
-                }
+                    if (blend) {
+                        double omega = std::abs(v_yaw);
+                        double r_ratio = 1.0;
+                        if (omega > trajectory_omega_high_) r_ratio = 0.0;
+                        else if (omega > trajectory_omega_low_) r_ratio = (trajectory_omega_high_ - omega) / (trajectory_omega_high_ - trajectory_omega_low_);
+                        res(0) = cx + (res(0) - cx) * r_ratio;
+                        res(1) = cy + (res(1) - cy) * r_ratio;
+                    }
+
+                    return std::make_pair(res, Eigen::Vector3d(vx, vy, vz));
+                };
+
+                auto hit_info = get_hit_pt(future_state_hit, false);
+                auto aim_info = get_hit_pt(future_state_aim, true);
 
                 robot_interfaces::msg::TargetTrajectoryPoint true_pt, aim_pt;
                 true_pt.time_offset = i * trajectory_dt_;
-                // Physical accuracy: true_pt uses the discrete BEST armor position
-                true_pt.x = best_ax;
-                true_pt.y = best_ay;
-                true_pt.z = best_az;
-                true_pt.v_x = vx;
-                true_pt.v_y = vy;
-                true_pt.v_z = vz;
-
-                double omega = std::abs(v_yaw);
-                double r_ratio = 1.0;
-                if (omega > trajectory_omega_high_) {
-                    r_ratio = 0.0;
-                } else if (omega > trajectory_omega_low_) {
-                    r_ratio = (trajectory_omega_high_ - omega) / (trajectory_omega_high_ - trajectory_omega_low_);
-                }
+                true_pt.x = hit_info.first.x(); true_pt.y = hit_info.first.y(); true_pt.z = hit_info.first.z();
+                true_pt.v_x = hit_info.second.x(); true_pt.v_y = hit_info.second.y(); true_pt.v_z = hit_info.second.z();
 
                 aim_pt.time_offset = i * trajectory_dt_;
-                // Control smoothness: aim_pt uses the BLENDED smooth position
-                aim_pt.x = cx + (blended_ax - cx) * r_ratio;
-                aim_pt.y = cy + (blended_ay - cy) * r_ratio;
-                aim_pt.z = blended_az;
-                aim_pt.v_x = vx;
-                aim_pt.v_y = vy;
-                aim_pt.v_z = vz;
+                aim_pt.x = aim_info.first.x(); aim_pt.y = aim_info.first.y(); aim_pt.z = aim_info.first.z();
+                aim_pt.v_x = aim_info.second.x(); aim_pt.v_y = aim_info.second.y(); aim_pt.v_z = aim_info.second.z();
 
                 traj_msg.true_trajectory.push_back(true_pt);
                 traj_msg.aim_trajectory.push_back(aim_pt);

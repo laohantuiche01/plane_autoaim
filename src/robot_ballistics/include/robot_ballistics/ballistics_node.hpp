@@ -41,6 +41,11 @@ private:
     double true_angle_tolerance_;
     double aim_angle_tolerance_;
 
+    double hit_yaw_offset_;
+    double hit_pitch_offset_;
+    double aim_yaw_offset_;
+    double aim_pitch_offset_;
+
     bool enable_sg_yaw_;
     int sg_yaw_order_;
     bool enable_sg_pitch_;

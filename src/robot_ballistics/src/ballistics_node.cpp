@@ -12,6 +12,11 @@ BallisticsNode::BallisticsNode(const rclcpp::NodeOptions& options)
     true_angle_tolerance_ = this->declare_parameter("true_angle_tolerance", 0.05);
     aim_angle_tolerance_ = this->declare_parameter("aim_angle_tolerance", 0.05);
     
+    hit_yaw_offset_ = this->declare_parameter("hit_yaw_offset", 0.0);
+    hit_pitch_offset_ = this->declare_parameter("hit_pitch_offset", 0.0);
+    aim_yaw_offset_ = this->declare_parameter("aim_yaw_offset", 0.0);
+    aim_pitch_offset_ = this->declare_parameter("aim_pitch_offset", 0.0);
+
     enable_sg_yaw_ = this->declare_parameter("enable_sg_yaw", true);
     sg_yaw_order_ = this->declare_parameter("sg_yaw_order", 2);
     enable_sg_pitch_ = this->declare_parameter("enable_sg_pitch", true);
@@ -37,6 +42,10 @@ BallisticsNode::BallisticsNode(const rclcpp::NodeOptions& options)
                 else if (param.get_name() == "gimbal_frame") gimbal_frame_ = param.as_string();
                 else if (param.get_name() == "true_angle_tolerance") true_angle_tolerance_ = param.as_double();
                 else if (param.get_name() == "aim_angle_tolerance") aim_angle_tolerance_ = param.as_double();
+                else if (param.get_name() == "hit_yaw_offset") hit_yaw_offset_ = param.as_double();
+                else if (param.get_name() == "hit_pitch_offset") hit_pitch_offset_ = param.as_double();
+                else if (param.get_name() == "aim_yaw_offset") aim_yaw_offset_ = param.as_double();
+                else if (param.get_name() == "aim_pitch_offset") aim_pitch_offset_ = param.as_double();
                 else if (param.get_name() == "enable_sg_yaw") enable_sg_yaw_ = param.as_bool();
                 else if (param.get_name() == "sg_yaw_order") sg_yaw_order_ = param.as_int();
                 else if (param.get_name() == "enable_sg_pitch") enable_sg_pitch_ = param.as_bool();
@@ -79,11 +88,6 @@ void BallisticsNode::trajectoryCallback(const robot_interfaces::msg::TargetTraje
 
     std::vector<double> true_yaw(num_points), true_pitch(num_points);
     std::vector<double> aim_yaw(num_points), aim_pitch(num_points);
-    
-    double dt = 0.05;
-    if (num_points > 1) {
-        dt = msg->true_trajectory[1].time_offset - msg->true_trajectory[0].time_offset;
-    }
 
     auto process_point = [&](const robot_interfaces::msg::TargetTrajectoryPoint& pt, double& yaw, double& pitch) {
         geometry_msgs::msg::PoseStamped pt_in, pt_out;
@@ -123,9 +127,23 @@ void BallisticsNode::trajectoryCallback(const robot_interfaces::msg::TargetTraje
 
     for (size_t i = 0; i < num_points; ++i) {
         process_point(msg->true_trajectory[i], true_yaw[i], true_pitch[i]);
+        true_yaw[i] += hit_yaw_offset_;
+        true_pitch[i] += hit_pitch_offset_;
+
         process_point(msg->aim_trajectory[i], aim_yaw[i], aim_pitch[i]);
+        aim_yaw[i] += aim_yaw_offset_;
+        aim_pitch[i] += aim_pitch_offset_;
 
         if (i == static_cast<size_t>(center_idx)) {
+            auto get_offset_pt = [](const Eigen::Vector3d& pt, double y_off, double p_off) {
+                double d = pt.norm();
+                double yaw = std::atan2(pt.y(), pt.x()) + y_off;
+                double pitch = std::atan2(pt.z(), std::sqrt(pt.x()*pt.x() + pt.y()*pt.y())) + p_off;
+                return Eigen::Vector3d(d * std::cos(pitch) * std::cos(yaw), 
+                                      d * std::cos(pitch) * std::sin(yaw), 
+                                      d * std::sin(pitch));
+            };
+
             geometry_msgs::msg::PoseStamped pt_in, pt_out;
             pt_in.header.frame_id = msg->header.frame_id;
             pt_in.header.stamp = msg->header.stamp;
@@ -134,14 +152,19 @@ void BallisticsNode::trajectoryCallback(const robot_interfaces::msg::TargetTraje
             pt_in.pose.position.y = msg->true_trajectory[i].y;
             pt_in.pose.position.z = msg->true_trajectory[i].z;
             tf2::doTransform(pt_in, pt_out, transform_stamped);
-            center_true_pt_gimbal = Eigen::Vector3d(pt_out.pose.position.x, pt_out.pose.position.y, pt_out.pose.position.z);
+            center_true_pt_gimbal = get_offset_pt(Eigen::Vector3d(pt_out.pose.position.x, pt_out.pose.position.y, pt_out.pose.position.z), hit_yaw_offset_, hit_pitch_offset_);
             
             pt_in.pose.position.x = msg->aim_trajectory[i].x;
             pt_in.pose.position.y = msg->aim_trajectory[i].y;
             pt_in.pose.position.z = msg->aim_trajectory[i].z;
             tf2::doTransform(pt_in, pt_out, transform_stamped);
-            center_aim_pt_gimbal = Eigen::Vector3d(pt_out.pose.position.x, pt_out.pose.position.y, pt_out.pose.position.z);
+            center_aim_pt_gimbal = get_offset_pt(Eigen::Vector3d(pt_out.pose.position.x, pt_out.pose.position.y, pt_out.pose.position.z), aim_yaw_offset_, aim_pitch_offset_);
         }
+    }
+
+    std::vector<double> times(num_points);
+    for (size_t i = 0; i < num_points; ++i) {
+        times[i] = msg->true_trajectory[i].time_offset;
     }
 
     double final_aim_yaw, final_aim_pitch, final_w_yaw, final_w_pitch;
@@ -154,23 +177,25 @@ void BallisticsNode::trajectoryCallback(const robot_interfaces::msg::TargetTraje
     robot_utils::unwrap_angles(aim_pitch);
 
     if (enable_sg_yaw_ && sg_yaw_order_ < static_cast<int>(num_points)) {
-        robot_utils::SavitzkyGolayFilter sg_yaw_val(num_points, sg_yaw_order_, 0, dt);
-        robot_utils::SavitzkyGolayFilter sg_yaw_vel(num_points, sg_yaw_order_, 1, dt);
-        final_aim_yaw = robot_utils::normalize_angle(sg_yaw_val.filterCenter(aim_yaw));
-        final_w_yaw = sg_yaw_vel.filterCenter(aim_yaw);
+        robot_utils::SavitzkyGolayFilter sg_yaw(num_points, sg_yaw_order_);
+        auto result = sg_yaw.fit(times, aim_yaw, 0.0);
+        final_aim_yaw = robot_utils::normalize_angle(result.first);
+        final_w_yaw = result.second;
     } else {
         final_aim_yaw = robot_utils::normalize_angle(aim_yaw[center_idx]);
-        final_w_yaw = (aim_yaw[center_idx + 1] - aim_yaw[center_idx - 1]) / (2 * dt);
+        double dt = (num_points > 1) ? (times[center_idx+1] - times[center_idx-1]) : 0.05;
+        final_w_yaw = (dt > 0) ? (aim_yaw[center_idx+1] - aim_yaw[center_idx-1]) / (2 * dt) : 0.0;
     }
 
     if (enable_sg_pitch_ && sg_pitch_order_ < static_cast<int>(num_points)) {
-        robot_utils::SavitzkyGolayFilter sg_pitch_val(num_points, sg_pitch_order_, 0, dt);
-        robot_utils::SavitzkyGolayFilter sg_pitch_vel(num_points, sg_pitch_order_, 1, dt);
-        final_aim_pitch = sg_pitch_val.filterCenter(aim_pitch);
-        final_w_pitch = sg_pitch_vel.filterCenter(aim_pitch);
+        robot_utils::SavitzkyGolayFilter sg_pitch(num_points, sg_pitch_order_);
+        auto result = sg_pitch.fit(times, aim_pitch, 0.0);
+        final_aim_pitch = result.first;
+        final_w_pitch = result.second;
     } else {
         final_aim_pitch = aim_pitch[center_idx];
-        final_w_pitch = (aim_pitch[center_idx + 1] - aim_pitch[center_idx - 1]) / (2 * dt);
+        double dt = (num_points > 1) ? (times[center_idx+1] - times[center_idx-1]) : 0.05;
+        final_w_pitch = (dt > 0) ? (aim_pitch[center_idx+1] - aim_pitch[center_idx-1]) / (2 * dt) : 0.0;
     }
 
     double true_angle_to_x = std::acos(center_true_pt_gimbal.x() / center_true_pt_gimbal.norm());
