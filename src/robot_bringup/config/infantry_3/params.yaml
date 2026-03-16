@@ -1,0 +1,101 @@
+# Default parameters for FYT Vision
+/**:
+  ros__parameters:
+    use_sim_time: false
+
+# Camera Driver (Hikrobot)
+hik_camera:
+  ros__parameters:
+    camera_info_url: "package://robot_bringup/config/default/camera_info.yaml"
+    use_sensor_data_qos: true
+    exposure_time: 5000
+    gain: 10.0
+
+# Armor Detector
+armor_detector:
+  ros__parameters:
+    debug: true
+    detector:
+      min_light_ratio: 0.1
+      min_armor_ratio: 0.1
+    classifier:
+      threshold: 0.8
+
+# Armor Solver
+armor_solver:
+  ros__parameters:
+    odom_frame: "odom"
+    max_lost_duration: 1.0
+    min_detect_count: 5
+    ukf_alpha: 0.001
+    ukf_beta: 2.0
+    ukf_kappa: 0.0
+
+    robot:
+      q_x: 0.001
+      q_y: 0.001
+      q_z: 0.001
+      q_vx: 0.1
+      q_vy: 0.01
+      q_vz: 0.1
+      q_yaw: 0.01
+      q_v_yaw: 0.001
+      q_geo: 0.0001
+      r_x: 0.5
+      r_y: 0.5
+      r_z: 0.5
+      r_yaw: 0.05
+      r_yaw_adaptive_factor: 50.0
+      adaptive_tracking: false
+      q_alpha: 0.1
+      dist_scale_coeff: 0.1
+      z_scale_coeff: 5.0
+
+    outpost:
+      q_x: 0.001
+      q_y: 0.001
+      q_z: 0.001
+      q_yaw: 0.01
+      q_v_yaw: 0.1
+      q_geo: 0.0001
+      r_x: 0.5
+      r_y: 0.5
+      r_z: 0.5
+      r_yaw: 0.05
+      r_yaw_adaptive_factor: 50.0
+      adaptive_tracking: false
+      q_alpha: 0.1
+      dist_scale_coeff: 0.1
+      z_scale_coeff: 5.0
+
+    trajectory:
+      bullet_speed: 25.0
+      hit_delay_offset: 0.0
+      aim_delay_offset: 0.0
+      num_points: 11
+      dt: 0.05
+      omega_low: 1.5
+      omega_high: 4.0
+      switch_concentration: 20.0
+
+# Ballistics Node
+ballistics_node:
+  ros__parameters:
+    bullet_speed: 25.0
+    gimbal_frame: "gimbal_link"
+    true_angle_tolerance: 0.05
+    aim_angle_tolerance: 0.05
+    hit_yaw_offset: 0.0
+    hit_pitch_offset: 0.0
+    aim_yaw_offset: 0.0
+    aim_pitch_offset: 0.0
+    enable_sg_yaw: true
+    sg_yaw_order: 2
+    enable_sg_pitch: true
+    sg_pitch_order: 2
+
+# Manager
+robot_manager:
+  ros__parameters:
+    detector_name: "armor_detector"
+    solver_name: "armor_solver"
