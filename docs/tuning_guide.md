@@ -28,8 +28,8 @@
 | 参数名 | 默认值 | 说明 | 调优建议 |
 | :--- | :--- | :--- | :--- |
 | `bullet_speed` | `25.0` | 预期弹速 (m/s) | **核心参数**。必须与实时弹速一致，否则预测点会打前/打后。 |
-| `hit_delay_offset` | `0.0` | 击打点额外延时补偿 (s) | 修正开火时机的物理偏差。**打在目标后方**：增大此值。 |
-| `aim_delay_offset` | `0.0` | 瞄准点额外延时补偿 (s) | 修正云台跟随的超前/滞后感。 |
+| `trajectory.hit_delay_offset` | `0.0` | 击打点额外延时补偿 (s) | 修正开火时机的物理偏差。**打在目标后方**：增大此值。 |
+| `trajectory.aim_delay_offset` | `0.0` | 瞄准点额外延时补偿 (s) | 修正云台跟随的超前/滞后感。 |
 | `num_points` | `11` | 轨迹序列点数 (奇数) | 影响滤波窗口大小。点数越多越平滑，但计算开销增大。 |
 | `dt` | `0.05` | 序列点时间间隔 (s) | 决定了滤波器能“看”多远。通常维持 `0.02 - 0.05`。 |
 | `omega_low / high` | `1.5 / 4.0` | 小陀螺收缩阈值 (rad/s) | 决定何时开始瞄准中心。**云台跟不上**：降低此阈值。 |
@@ -46,14 +46,20 @@
 | :--- | :--- | :--- | :--- |
 | `bullet_speed` | `25.0` | 弹速 (m/s) | 用于计算抛物线仰角补偿。 |
 | `gimbal_frame` | `gimbal_link` | 云台参考系 | 角度解算的目标系（通常为 pitch 轴中心）。 |
-| `hit_yaw/pitch_offset`| `0.0` | 击打点角度偏置 (rad) | 修正物理安装偏差，影响开火判定。 |
-| `aim_yaw/pitch_offset`| `0.0` | 瞄准点角度偏置 (rad) | 最终发给云台的指令偏置。 |
+| `hit_yaw_offset` | `0.0` | 击打点角度偏置 (rad) | 修正物理安装偏差，影响开火判定。 |
+| `hit_pitch_offset` | `0.0` | 击打点角度偏置 (rad) | 修正物理安装偏差，影响开火判定。 |
+| `aim_yaw_offset` | `0.0` | 瞄准点角度偏置 (rad) | 最终发给云台的指令偏置。 |
+| `aim_pitch_offset` | `0.0` | 瞄准点角度偏置 (rad) | 最终发给云台的指令偏置。 |
 
 ### 开火判定 (Firing Decision)
 | 参数名 | 默认值 | 说明 | 调优建议 |
 | :--- | :--- | :--- | :--- |
 | `true_angle_tolerance`| `0.05` | 击打点与X轴夹角阈值 | 确保真实的装甲板就在枪口指向范围内。 |
 | `aim_angle_tolerance` | `0.05` | 瞄准点与X轴夹角阈值 | 确保云台不仅到位，且指向精度达标。 |
+
+### 话题说明
+*   **发布指令**：`/robot/aim` (类型：`robot_interfaces/msg/Aim`)。
+*   **发布调试**：`/ballistics/debug` (类型：`robot_interfaces/msg/BallisticsDebug`)。
 
 ### 滤波参数 (Dynamic Poly-Fit)
 > 注意：该滤波器已升级为基于序列 `time_offset` 的动态最小二乘拟合。
@@ -91,11 +97,6 @@ ros2 launch robot_bringup vision.launch.py robot_type:=sentry
 ```
 可用的 `robot_type`: `default`, `sentry`, `infantry_3`, `infantry_4`。
 
-### 核心特性
-1.  **零拷贝通信 (Zero-Copy)**：通过 `ComposableNodeContainer` 将相机、识别、预测、弹道节点打包在同一个进程中，并开启 `use_intra_process_comms`。这使得高分辨率图像在节点间传递时无需经过网络序列化，大幅降低 CPU 开销。
-2.  **自动重启 (Auto-Restart)**：所有核心节点均配置了 `respawn=True`。如果节点因驱动异常或算法崩溃意外退出，Launch 会在 2 秒后自动将其拉起。
-3.  **分机配置管理**：参数存放在 `config/[robot_type]/params.yaml` 下，方便针对每台车的机械差异（如偏置、噪声等）进行独立维护。
-
 ---
 
 ## 5. 常见问题排查 (Troubleshooting)
@@ -113,7 +114,7 @@ ros2 launch robot_bringup vision.launch.py robot_type:=sentry
 *   **检查**：若仍发生，请确保 `max_lost_duration` 大于丢帧时长。
 
 ### Q4: 如何精确微调延迟补偿？
-1. 观察 `/armor_solver/ballistics_debug` 话题。
+1. 观察 `/ballistics/debug` 话题。
 2. 对比 `raw_yaw` 与滤波后的指令。
 3. 若子弹总是落在目标旋转方向的后方：**增大 `trajectory.hit_delay_offset`**。
 4. 若云台指向总是慢半拍：**增大 `trajectory.aim_delay_offset`**。

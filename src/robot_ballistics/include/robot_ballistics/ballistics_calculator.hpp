@@ -24,6 +24,15 @@ public:
         double bullet_speed, 
         double pipeline_latency, 
         double manual_offset);
+
+    /**
+     * @brief Calculate the required pitch angle to hit a target considering gravity.
+     * 
+     * @param target_pos Position of the target in gimbal frame (m)
+     * @param bullet_speed Speed of the projectile (m/s)
+     * @return double Required pitch angle (rad)
+     */
+    static double calculatePitch(const Eigen::Vector3d& target_pos, double bullet_speed);
 };
 
 } // namespace robot_ballistics

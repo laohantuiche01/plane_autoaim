@@ -29,8 +29,8 @@ BallisticsNode::BallisticsNode(const rclcpp::NodeOptions& options)
         "armor_solver/trajectory", rclcpp::SensorDataQoS(),
         std::bind(&BallisticsNode::trajectoryCallback, this, std::placeholders::_1));
 
-    aim_pub_ = this->create_publisher<robot_interfaces::msg::Aim>("armor_solver/cmd_gimbal", 10);
-    debug_pub_ = this->create_publisher<robot_interfaces::msg::BallisticsDebug>("armor_solver/ballistics_debug", 10);
+    aim_pub_ = this->create_publisher<robot_interfaces::msg::Aim>("/robot/aim", 10);
+    debug_pub_ = this->create_publisher<robot_interfaces::msg::BallisticsDebug>("/ballistics/debug", 10);
 
     // Parameter Callback
     on_set_parameters_callback_handle_ = this->add_on_set_parameters_callback(
@@ -105,21 +105,7 @@ void BallisticsNode::trajectoryCallback(const robot_interfaces::msg::TargetTraje
         double gz = pt_out.pose.position.z;
 
         yaw = std::atan2(gy, gx);
-
-        double d = std::sqrt(gx * gx + gy * gy);
-        double v = bullet_speed_;
-        double g = 9.8;
-
-        // z = d*u - (g*d^2)/(2*v^2) * (1 + u^2)
-        double k = (g * d * d) / (2 * v * v);
-        double discriminant = d * d - 4 * k * (gz + k);
-
-        if (discriminant >= 0) {
-            double u = (d - std::sqrt(discriminant)) / (2 * k);
-            pitch = std::atan(u);
-        } else {
-            pitch = std::atan2(gz, d); // fallback
-        }
+        pitch = BallisticsCalculator::calculatePitch(Eigen::Vector3d(gx, gy, gz), bullet_speed_);
     };
 
     Eigen::Vector3d center_true_pt_gimbal, center_aim_pt_gimbal;

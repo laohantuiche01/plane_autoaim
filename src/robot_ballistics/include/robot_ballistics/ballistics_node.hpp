@@ -14,6 +14,7 @@
 #include "robot_interfaces/msg/target_trajectory.hpp"
 #include "robot_interfaces/msg/aim.hpp"
 #include "robot_interfaces/msg/ballistics_debug.hpp"
+#include "robot_ballistics/ballistics_calculator.hpp"
 #include "robot_utils/savitzky_golay.hpp"
 #include "robot_utils/math_utils.hpp"
 
