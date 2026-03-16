@@ -61,6 +61,7 @@ private:
     double trajectory_dt_;
     double trajectory_omega_low_;
     double trajectory_omega_high_;
+    double trajectory_switch_concentration_;
 
     // Timer
     rclcpp::TimerBase::SharedPtr timer_;

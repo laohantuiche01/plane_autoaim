@@ -58,6 +58,7 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
     trajectory_dt_ = declare_parameter("trajectory.dt", 0.05);
     trajectory_omega_low_ = declare_parameter("trajectory.omega_low", 1.5);
     trajectory_omega_high_ = declare_parameter("trajectory.omega_high", 4.0);
+    trajectory_switch_concentration_ = declare_parameter("trajectory.switch_concentration", 20.0);
 
     tracker_ = std::make_unique<Tracker>(this->get_clock(), max_lost_duration, min_detect_count);
     updateTrackerParams();
@@ -110,6 +111,7 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
                 else if (param.get_name() == "trajectory.dt") trajectory_dt_ = param.as_double();
                 else if (param.get_name() == "trajectory.omega_low") trajectory_omega_low_ = param.as_double();
                 else if (param.get_name() == "trajectory.omega_high") trajectory_omega_high_ = param.as_double();
+                else if (param.get_name() == "trajectory.switch_concentration") trajectory_switch_concentration_ = param.as_double();
             }
 
             if (should_reset) {
@@ -310,9 +312,12 @@ void ArmorSolverNode::timerCallback() {
 
                 double dir_to_origin = std::atan2(-cy, -cx);
                 
-                // --- Soft Armor Selection (Blending) ---
+                // --- Armor Selection & Blending ---
                 double total_weight = 0.0;
                 double blended_ax = 0.0, blended_ay = 0.0, blended_az = 0.0;
+                double max_weight = -1.0;
+                double best_ax = cx, best_ay = cy, best_az = cz;
+
                 int armor_num = target->getArmorNum();
 
                 for (int j = 0; j < armor_num; ++j) {
@@ -333,17 +338,22 @@ void ArmorSolverNode::timerCallback() {
                     double armor_facing = robot_utils::normalize_angle(armor_angle + M_PI);
                     double angle_diff = std::abs(robot_utils::normalize_angle(dir_to_origin - armor_facing));
                     
-                    // Use cos^n weighting for smooth blending (n=10 for narrow focus)
-                    double weight = std::pow(std::max(0.0, std::cos(angle_diff)), 10.0);
-                    
                     double ax = cx - current_r * std::cos(armor_angle);
                     double ay = cy - current_r * std::sin(armor_angle);
                     double az = cz + h_offset;
 
+                    // Use cos^n weighting for smooth blending
+                    double weight = std::pow(std::max(0.0, std::cos(angle_diff)), trajectory_switch_concentration_);
+                    
                     blended_ax += ax * weight;
                     blended_ay += ay * weight;
                     blended_az += az * weight;
                     total_weight += weight;
+
+                    if (weight > max_weight) {
+                        max_weight = weight;
+                        best_ax = ax; best_ay = ay; best_az = az;
+                    }
                 }
 
                 if (total_weight > 1e-6) {
@@ -356,9 +366,10 @@ void ArmorSolverNode::timerCallback() {
 
                 robot_interfaces::msg::TargetTrajectoryPoint true_pt, aim_pt;
                 true_pt.time_offset = i * trajectory_dt_;
-                true_pt.x = blended_ax;
-                true_pt.y = blended_ay;
-                true_pt.z = blended_az;
+                // Physical accuracy: true_pt uses the discrete BEST armor position
+                true_pt.x = best_ax;
+                true_pt.y = best_ay;
+                true_pt.z = best_az;
                 true_pt.v_x = vx;
                 true_pt.v_y = vy;
                 true_pt.v_z = vz;
@@ -372,13 +383,10 @@ void ArmorSolverNode::timerCallback() {
                 }
 
                 aim_pt.time_offset = i * trajectory_dt_;
-                // Aim point is interpolated between center and the hit point
+                // Control smoothness: aim_pt uses the BLENDED smooth position
                 aim_pt.x = cx + (blended_ax - cx) * r_ratio;
                 aim_pt.y = cy + (blended_ay - cy) * r_ratio;
                 aim_pt.z = blended_az;
-                aim_pt.v_x = vx;
-                aim_pt.v_y = vy;
-                aim_pt.v_z = vz;
                 aim_pt.v_x = vx;
                 aim_pt.v_y = vy;
                 aim_pt.v_z = vz;
