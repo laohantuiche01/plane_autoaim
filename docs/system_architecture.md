@@ -26,20 +26,24 @@ graph TD
 
     %% 感知层
     subgraph Perception
-        Det[armor_detector / buff_detector]
+        ArmorDet[armor_detector]
+        BuffDet[buff_detector]
     end
 
     %% 预测与规划层
     subgraph State Estimation & Planning
-        Solv[armor_solver]
-        
-        subgraph UKF Models
+        subgraph Armor Solver
+            ArmorSolv[armor_solver]
             UKF_R[Robot 11D UKF]
             UKF_O[Outpost Multi-UKF]
-            UKF_B[Buff 10D UKF]
+            ArmorTraj[Armor Trajectory Gen]
         end
         
-        Traj[Trajectory Generator]
+        subgraph Buff Solver
+            BuffSolv[buff_solver]
+            UKF_B[Buff 10D UKF]
+            BuffTraj[Buff Trajectory Gen]
+        end
     end
 
     %% 控制与解算层
@@ -54,23 +58,26 @@ graph TD
     end
 
     %% 数据流线
-    Cam -- "Raw Image (Zero-Copy)" --> Det
-    Serial -- "TF (odom -> gimbal)" --> Solv
+    Cam -- "Raw Image (Zero-Copy)" --> ArmorDet & BuffDet
+    Serial -- "TF (odom -> gimbal)" --> ArmorSolv & BuffSolv
     Serial -- "Mode" --> Mgr
 
-    Det -- "Armors 3D (PnP)" --> Solv
+    ArmorDet -- "Armors 3D (PnP)" --> ArmorSolv
+    BuffDet -- "Buff 3D (PnP)" --> BuffSolv
     
-    Solv --> UKF_R & UKF_O & UKF_B
-    UKF_R & UKF_O & UKF_B --> Traj
+    ArmorSolv --> UKF_R & UKF_O
+    UKF_R & UKF_O --> ArmorTraj
     
-    Traj -- "true_trajectory" --> Bal
-    Traj -- "aim_trajectory" --> Bal
+    BuffSolv --> UKF_B
+    UKF_B --> BuffTraj
+    
+    ArmorTraj & BuffTraj -- "true/aim_trajectory" --> Bal
     
     Bal --> SG
     SG -- "Aim Command (Yaw, Pitch, w)" --> Serial
     
-    Mgr -. "Lifecycle Ctrl" .-> Det
-    Mgr -. "Lifecycle Ctrl" .-> Solv
+    Mgr -. "Lifecycle Ctrl" .-> ArmorDet & BuffDet
+    Mgr -. "Lifecycle Ctrl" .-> ArmorSolv & BuffSolv
 ```
 
 整个自瞄与打击流程被划分为五个高度内聚、低耦合的流水线阶段：
