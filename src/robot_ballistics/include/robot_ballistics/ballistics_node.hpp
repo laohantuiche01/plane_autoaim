@@ -14,6 +14,7 @@
 #include "robot_interfaces/msg/target_trajectory.hpp"
 #include "robot_interfaces/msg/aim.hpp"
 #include "robot_interfaces/msg/ballistics_debug.hpp"
+#include "visualization_msgs/msg/marker.hpp"
 #include "robot_ballistics/ballistics_calculator.hpp"
 #include "robot_utils/savitzky_golay.hpp"
 #include "robot_utils/math_utils.hpp"
@@ -35,6 +36,7 @@ private:
     rclcpp::Subscription<robot_interfaces::msg::TargetTrajectory>::SharedPtr trajectory_sub_;
     rclcpp::Publisher<robot_interfaces::msg::Aim>::SharedPtr aim_pub_;
     rclcpp::Publisher<robot_interfaces::msg::BallisticsDebug>::SharedPtr debug_pub_;
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
 
     // Parameters
     double bullet_speed_;

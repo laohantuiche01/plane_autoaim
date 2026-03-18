@@ -31,6 +31,7 @@ BallisticsNode::BallisticsNode(const rclcpp::NodeOptions& options)
 
     aim_pub_ = this->create_publisher<robot_interfaces::msg::Aim>("/robot/aim", 10);
     debug_pub_ = this->create_publisher<robot_interfaces::msg::BallisticsDebug>("/ballistics/debug", 10);
+    marker_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("/ballistics/trajectory_marker", 10);
 
     // Parameter Callback
     on_set_parameters_callback_handle_ = this->add_on_set_parameters_callback(
@@ -198,6 +199,46 @@ void BallisticsNode::trajectoryCallback(const robot_interfaces::msg::TargetTraje
     debug_msg.aim_angle_to_x = aim_angle_to_x;
     debug_msg.success = success;
     debug_pub_->publish(debug_msg);
+
+    // Publish parabolic trajectory visualization
+    visualization_msgs::msg::Marker marker;
+    marker.header.frame_id = "odom";
+    marker.header.stamp = msg->header.stamp;
+    marker.ns = "ballistics_trajectory";
+    marker.id = 0;
+    marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.scale.x = 0.02; // Line width
+
+    if (success) {
+        marker.color.r = 0.0;
+        marker.color.g = 1.0;
+        marker.color.b = 0.0;
+        marker.color.a = 1.0; // Green when allowed to hit
+    } else {
+        marker.color.r = 1.0;
+        marker.color.g = 1.0;
+        marker.color.b = 0.0;
+        marker.color.a = 1.0; // Yellow otherwise
+    }
+
+    double vx = bullet_speed_ * std::cos(current_pitch) * std::cos(current_yaw);
+    double vy = bullet_speed_ * std::cos(current_pitch) * std::sin(current_yaw);
+    double vz = bullet_speed_ * std::sin(current_pitch);
+
+    // Calculate trajectory points starting from the gimbal
+    for (double t = 0; t <= 2.0; t += 0.05) {
+        geometry_msgs::msg::Point p;
+        p.x = gimbal_to_odom.transform.translation.x + vx * t;
+        p.y = gimbal_to_odom.transform.translation.y + vy * t;
+        p.z = gimbal_to_odom.transform.translation.z + vz * t - 0.5 * 9.8 * t * t;
+        marker.points.push_back(p);
+        
+        // Stop drawing if it hits the ground
+        if (p.z < 0.0) break;
+    }
+
+    marker_pub_->publish(marker);
 }
 
 } // namespace robot_ballistics

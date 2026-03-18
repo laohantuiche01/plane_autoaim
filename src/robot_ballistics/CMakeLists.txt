@@ -14,6 +14,7 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(robot_interfaces REQUIRED)
 find_package(robot_utils REQUIRED)
+find_package(visualization_msgs REQUIRED)
 
 include_directories(include)
 
@@ -42,6 +43,7 @@ ament_target_dependencies(ballistics_node
   tf2_geometry_msgs 
   robot_interfaces
   robot_utils
+  visualization_msgs
 )
 
 rclcpp_components_register_node(ballistics_node
@@ -50,7 +52,7 @@ rclcpp_components_register_node(ballistics_node
 )
 
 ament_export_targets(ballistics_calculator HAS_LIBRARY_TARGET)
-ament_export_dependencies(rclcpp rclcpp_components Eigen3 tf2_ros tf2_geometry_msgs robot_interfaces robot_utils)
+ament_export_dependencies(rclcpp rclcpp_components Eigen3 tf2_ros tf2_geometry_msgs robot_interfaces robot_utils visualization_msgs)
 
 install(TARGETS ballistics_calculator ballistics_node
   EXPORT ballistics_calculator
