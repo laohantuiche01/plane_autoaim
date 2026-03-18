@@ -105,7 +105,6 @@ void BallisticsNode::trajectoryCallback(const robot_interfaces::msg::TargetTraje
         pitch = BallisticsCalculator::calculatePitch(Eigen::Vector3d(dx, dy, dz), bullet_speed_);
     };
 
-    Eigen::Vector3d center_true_pt_gimbal, center_aim_pt_gimbal;
     int center_idx = num_points / 2;
 
     for (size_t i = 0; i < num_points; ++i) {
@@ -116,34 +115,6 @@ void BallisticsNode::trajectoryCallback(const robot_interfaces::msg::TargetTraje
         process_point(msg->aim_trajectory[i], aim_yaw[i], aim_pitch[i]);
         aim_yaw[i] += aim_yaw_offset_;
         aim_pitch[i] += aim_pitch_offset_;
-
-        if (i == static_cast<size_t>(center_idx)) {
-            auto get_offset_pt = [](const Eigen::Vector3d& pt, double y_off, double p_off) {
-                double d = pt.norm();
-                double yaw = std::atan2(pt.y(), pt.x()) + y_off;
-                double pitch = std::atan2(pt.z(), std::sqrt(pt.x()*pt.x() + pt.y()*pt.y())) + p_off;
-                return Eigen::Vector3d(d * std::cos(pitch) * std::cos(yaw), 
-                                      d * std::cos(pitch) * std::sin(yaw), 
-                                      d * std::sin(pitch));
-            };
-
-            geometry_msgs::msg::PoseStamped pt_in, pt_out;
-            pt_in.header.frame_id = msg->header.frame_id;
-            pt_in.header.stamp = msg->header.stamp;
-            pt_in.pose.orientation.w = 1.0;
-            
-            pt_in.pose.position.x = msg->true_trajectory[i].x;
-            pt_in.pose.position.y = msg->true_trajectory[i].y;
-            pt_in.pose.position.z = msg->true_trajectory[i].z;
-            tf2::doTransform(pt_in, pt_out, odom_to_gimbal);
-            center_true_pt_gimbal = get_offset_pt(Eigen::Vector3d(pt_out.pose.position.x, pt_out.pose.position.y, pt_out.pose.position.z), hit_yaw_offset_, hit_pitch_offset_);
-            
-            pt_in.pose.position.x = msg->aim_trajectory[i].x;
-            pt_in.pose.position.y = msg->aim_trajectory[i].y;
-            pt_in.pose.position.z = msg->aim_trajectory[i].z;
-            tf2::doTransform(pt_in, pt_out, odom_to_gimbal);
-            center_aim_pt_gimbal = get_offset_pt(Eigen::Vector3d(pt_out.pose.position.x, pt_out.pose.position.y, pt_out.pose.position.z), aim_yaw_offset_, aim_pitch_offset_);
-        }
     }
 
     std::vector<double> times(num_points);
@@ -182,13 +153,31 @@ void BallisticsNode::trajectoryCallback(const robot_interfaces::msg::TargetTraje
         final_w_pitch = (dt > 0) ? (aim_pitch[center_idx+1] - aim_pitch[center_idx-1]) / (2 * dt) : 0.0;
     }
 
-    double true_angle_to_x = std::acos(center_true_pt_gimbal.x() / center_true_pt_gimbal.norm());
-    double aim_angle_to_x = std::acos(center_aim_pt_gimbal.x() / center_aim_pt_gimbal.norm());
+    // Calculate current gimbal X axis in odom frame
+    tf2::Quaternion q(
+        gimbal_to_odom.transform.rotation.x,
+        gimbal_to_odom.transform.rotation.y,
+        gimbal_to_odom.transform.rotation.z,
+        gimbal_to_odom.transform.rotation.w);
+    tf2::Vector3 gimbal_x = tf2::Matrix3x3(q).getColumn(0);
+    double current_yaw = std::atan2(gimbal_x.y(), gimbal_x.x());
+    double current_pitch = std::atan2(gimbal_x.z(), std::sqrt(gimbal_x.x()*gimbal_x.x() + gimbal_x.y()*gimbal_x.y()));
+
+    double aim_yaw_error = robot_utils::normalize_angle(current_yaw - final_aim_yaw);
+    double aim_pitch_error = robot_utils::normalize_angle(current_pitch - final_aim_pitch);
+    double true_yaw_error = robot_utils::normalize_angle(current_yaw - true_yaw[center_idx]);
 
     bool success = false;
-    if (std::abs(true_angle_to_x) < true_angle_tolerance_ && std::abs(aim_angle_to_x) < aim_angle_tolerance_) {
+    // Check if aim yaw, aim pitch, and true yaw are all within tolerance
+    if (std::abs(aim_yaw_error) < aim_angle_tolerance_ && 
+        std::abs(aim_pitch_error) < aim_angle_tolerance_ && 
+        std::abs(true_yaw_error) < true_angle_tolerance_) {
         success = true;
     }
+
+    // Assign to debug message (mapping error magnitudes to analogous fields)
+    double true_angle_to_x = std::abs(true_yaw_error);
+    double aim_angle_to_x = std::sqrt(aim_yaw_error*aim_yaw_error + aim_pitch_error*aim_pitch_error);
 
     robot_interfaces::msg::Aim aim_cmd;
     aim_cmd.header = msg->header;
