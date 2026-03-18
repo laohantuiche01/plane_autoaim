@@ -85,7 +85,17 @@ def launch_setup(context, *args, **kwargs):
         respawn_delay=2.0,
     )
 
-    return [vision_container, manager_node]
+    communication_node = Node(
+        package='robot_communication',
+        executable='robot_communication_node',
+        name='robot_communication',
+        parameters=[params_path],
+        output='both',
+        respawn=True,
+        respawn_delay=2.0,
+    )
+
+    return [vision_container, manager_node, communication_node]
 
 def generate_launch_description():
     # Environment Variables for detailed logging

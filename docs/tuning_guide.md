@@ -86,7 +86,27 @@
 
 ---
 
-## 4. robot_bringup (一键启动与多机管理)
+## 4. RobotCommunication (串口通信与坐标系发布)
+
+该节点负责与底层电控进行串口通信，同时额外负责发布相机相对于云台的静态或动态 TF 变换。
+
+### 核心功能
+*   **指令下发**：接收 `/robot/aim` 话题并打包发送串口协议（0x81）。
+*   **状态上传**：读取串口协议（0x14），发布 `/robot/gimbal` 和 `/robot/mode`。
+*   **TF 发布**：每次收到电控状态后，发布 `odom -> gimbal_link` 的 TF，以及 `gimbal_link -> camera_optical_frame` 的动态 TF。
+
+### 相机坐标系参数 (TF 配置)
+> 注意：为方便测量与调试，以下参数使用**标准的 ROS 坐标系（X前、Y左、Z上）**及**角度制 (Degrees)** 定义物理安装位姿。节点在发布 `camera_optical_frame` TF 时，会自动乘以 OpenCV 相机坐标系转换矩阵（Z前、X右、Y下），因此你在标定或填入参数时**无需考虑 OpenCV 的奇怪朝向**。
+
+| 参数名 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `serial_name` | `/dev/ttyACM0` | 串口设备号。 |
+| `camera_x / y / z` | `0.0` | 相机坐标系原点相对于云台中心的平移 (m)。 |
+| `camera_roll / pitch / yaw` | `0.0` | 相机坐标系相对于云台的旋转角度 (度, degrees)。可用于通过串口热更新来快速补偿 Pitch 偏置。 |
+
+---
+
+## 5. robot_bringup (一键启动与多机管理)
 
 该包集成了所有配置与启动脚本，支持多机部署与零拷贝通信。
 

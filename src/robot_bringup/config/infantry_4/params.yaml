@@ -99,3 +99,14 @@ robot_manager:
   ros__parameters:
     detector_name: "armor_detector"
     solver_name: "armor_solver"
+
+# Communication
+robot_communication:
+  ros__parameters:
+    serial_name: "/dev/ttyACM0"
+    camera_x: 0.0
+    camera_y: 0.0
+    camera_z: 0.0
+    camera_roll: 0.0
+    camera_pitch: 0.0
+    camera_yaw: 0.0
