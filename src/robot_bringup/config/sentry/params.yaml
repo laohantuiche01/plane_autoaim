@@ -1,4 +1,3 @@
-# Default parameters for FYT Vision
 /**:
   ros__parameters:
     use_sim_time: false
@@ -6,26 +5,50 @@
 # Camera Driver (Hikrobot)
 hik_camera:
   ros__parameters:
-    camera_info_url: "package://robot_bringup/config/default/camera_info.yaml"
     use_sensor_data_qos: true
     exposure_time: 2500.0
-    height: 1080
-    offset_y: 0
     gain: 10.0
     frame_rate: 120.0
+    delay_ratio: 0.0
+    width: 1440
+    height: 1080
+    offset_x: 0
+    offset_y: 0
+    bit_depth: "Bits_8"
     k: [1800.6934143042636, 0.0, 706.3079996913679, 0.0, 1798.7788211368727, 582.3820392862021, 0.0, 0.0, 1.0]
     d: [-0.08369000662881113, 0.15293784675197394, -0.0001574420968165169, 9.731791440156544e-05, 0.0]
 
 # Armor Detector
 armor_detector:
   ros__parameters:
+    use_ba: true
+    target_frame: "odom"
     debug: true
+    binary_thres: 160
     enemy_color: "blue"
-    detector:
-      min_light_ratio: 0.1
-      min_armor_ratio: 0.1
-    classifier:
-      threshold: 0.8
+    classifier_threshold: 0.8
+    ignore_classes: ["negative"]
+    use_pca: true
+    
+    light:
+      min_ratio: 0.08
+      max_ratio: 0.4
+      max_angle: 40.0
+      color_diff_thresh: 25
+      
+    armor:
+      min_light_ratio: 0.6
+      min_small_center_distance: 0.8
+      max_small_center_distance: 3.2
+      min_large_center_distance: 3.2
+      max_large_center_distance: 5.0
+      max_angle: 35.0
+
+    armor_detector:
+      result_img:
+        jpeg_quality: 50
+      binary_img:
+        jpeg_quality: 50
 
 # Armor Solver
 armor_solver:
@@ -36,6 +59,7 @@ armor_solver:
     ukf_alpha: 0.001
     ukf_beta: 2.0
     ukf_kappa: 0.0
+    bullet_speed: 25.0
 
     robot:
       q_x: 0.001
@@ -61,6 +85,9 @@ armor_solver:
       q_x: 0.001
       q_y: 0.001
       q_z: 0.001
+      q_vx: 0.1
+      q_vy: 0.1
+      q_vz: 0.1
       q_yaw: 0.01
       q_v_yaw: 0.1
       q_geo: 0.0001
@@ -75,7 +102,6 @@ armor_solver:
       z_scale_coeff: 5.0
 
     trajectory:
-      bullet_speed: 25.0
       hit_delay_offset: 0.0
       aim_delay_offset: 0.0
       num_points: 11
