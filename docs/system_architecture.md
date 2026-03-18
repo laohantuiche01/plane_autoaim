@@ -134,18 +134,26 @@ graph TD
 
 *   **时间更新过程 (Predict Equation)**:
     在已知时间间隔 $\Delta t$ 下，系统的运动学传播方程构建为恒定速度（CV）和恒定角速度（W）的混合模型：
-    $$ cx_k = cx_{k-1} + vx_{k-1} \cdot \Delta t $$
-    $$ cy_k = cy_{k-1} + vy_{k-1} \cdot \Delta t $$
-    $$ cz_k = cz_{k-1} + vz_{k-1} \cdot \Delta t $$
-    $$ \theta_k = (\theta_{k-1} + \omega_{k-1} \cdot \Delta t) \bmod 2\pi $$
+    $$
+    \begin{aligned}
+    cx_k &= cx_{k-1} + vx_{k-1} \cdot \Delta t \\
+    cy_k &= cy_{k-1} + vy_{k-1} \cdot \Delta t \\
+    cz_k &= cz_{k-1} + vz_{k-1} \cdot \Delta t \\
+    \theta_k &= (\theta_{k-1} + \omega_{k-1} \cdot \Delta t) \bmod 2\pi
+    \end{aligned}
+    $$
     其余状态量（速度项及几何参数）在理想状态下视为常数，即 $X_{k} = X_{k-1}$。实际运算中，系统状态的跃变由过程噪声协方差矩阵 $Q$ 进行补偿调节。
 
 *   **测量更新过程 (Update Equation)**:
     检测系统能够提供的观测数据仅为当前正对相机的这一块装甲板的 3D 坐标及其自身的偏航角：$Z = [ax, ay, az, \theta_{armor}]^T$。
     UKF 通过以下非线性观测函数 $Z = H(X)$ 将 Sigma 点映射到观测空间进行残差比对：
-    $$ ax = cx \pm (r + l_{active}) \cos(\theta_{armor}) $$
-    $$ ay = cy \pm (r + l_{active}) \sin(\theta_{armor}) $$
-    $$ az = cz + h_{active} $$
+    $$
+    \begin{aligned}
+    ax &= cx \pm (r + l_{active}) \cos(\theta_{armor}) \\
+    ay &= cy \pm (r + l_{active}) \sin(\theta_{armor}) \\
+    az &= cz + h_{active}
+    \end{aligned}
+    $$
     该方程精妙地建立了“不可见的车体中心”与“可见的单块装甲板”之间的刚体几何约束，驱动 UKF 在数帧之内快速收敛出真实的车体半径与角速度。
 
 ### 3.2 前哨站定点模型 (Outpost Target Model)
@@ -163,16 +171,22 @@ graph TD
 
 *   **独特的观测几何约束**:
     在计算观测映射 $H(X)$ 时，由于三面装甲板的夹角是严格的 $\frac{2\pi}{3}$，系统的几何推导简化为：
-    $$ \theta_{armor} = \theta_{center} + id \cdot \frac{2\pi}{3} $$
-    $$ ax = cx + r \cos(\theta_{armor}) $$
-    $$ ay = cy + r \sin(\theta_{armor}) $$
-    $$ az = cz - id \cdot h $$
+    $$
+    \begin{aligned}
+    \theta_{armor} &= \theta_{center} + id \cdot \frac{2\pi}{3} \\
+    ax &= cx + r \cos(\theta_{armor}) \\
+    ay &= cy + r \sin(\theta_{armor}) \\
+    az &= cz - id \cdot h
+    \end{aligned}
+    $$
     这种强约束使得即便前哨站只露出极小的一部分，系统也能瞬间推断出另外两块装甲板隐藏在空间的哪个角落。
 
 *   **观测噪声自适应缩放 (Adaptive Measurement Noise R)**:
     在实际交战中，随着目标距离的增加或装甲板偏离视野中心，PnP 解算的深度误差会呈非线性放大；同时，当数据关联发生不确定（例如装甲板切换跳变）时，偏航角的观测也会产生巨大波动。
     为了提升极限条件下的鲁棒性，系统引入了**自适应 $R$ 矩阵**机制。在每次 `update` 前，算法会根据目标的三维距离 $d$ 对位置的观测协方差 $R_{pos}$ 进行动态缩放：
-    $$ R_{adaptive\_pos} = R_{base} \cdot (1 + k \cdot d^2) $$
+    $$
+    R_{adaptive\_pos} = R_{base} \cdot (1 + k \cdot d^2)
+    $$
     对于偏航角协方差 $R_{yaw}$，当判定的最佳装甲板 ID 发生变更时，算法会瞬间将其放大几十倍（受参数 `r_yaw_adaptive_factor` 控制），以此强行降低滤波器对当前瞬间观测角度的信任度，转而依靠模型先验的角速度进行平滑惯性预测，成功过滤了切换瞬间的高频噪声毛刺。
 
 ### 3.3 能量机关变速模型 (Buff Target Model) (规划前瞻)
@@ -186,9 +200,13 @@ graph TD
 
 *   **基于相位的自回归更新**:
     在 UKF 的时间推演步骤中，我们利用系统内部的时间间隔 $\Delta t$ 自主推演相位的流转，并进而计算出瞬时速度与角度的积分：
-    $$ \phi_k = \phi_{k-1} + \omega_{k-1} \cdot \Delta t $$
-    $$ v_{roll, k} = a_{k-1} \sin(\phi_k) + b_{k-1} $$
-    $$ \theta_{roll, k} = \theta_{roll, k-1} + v_{roll, k-1} \cdot \Delta t $$
+    $$
+    \begin{aligned}
+    \phi_k &= \phi_{k-1} + \omega_{k-1} \cdot \Delta t \\
+    v_{roll, k} &= a_{k-1} \sin(\phi_k) + b_{k-1} \\
+    \theta_{roll, k} &= \theta_{roll, k-1} + v_{roll, k-1} \cdot \Delta t
+    \end{aligned}
+    $$
     通过将复杂的绝对时间域函数巧妙地转换为相邻时刻的相对相位推演，UKF 能够仅凭借相机每帧捕捉到的离散扇叶位置，就像拼图一样逐步逆向逼近出隐藏的正弦波参数 $a$ 和 $\omega$。一旦这几个参数收敛，系统就能突破视觉延迟的限制，精准预测出子弹到达时刻扇叶的绝对坐标。
 
 ---
@@ -213,7 +231,9 @@ graph TD
 **第一层：切向的软切换融合 (Tangential Soft Blending)**
 为了消除装甲板交替时的阶梯状跳变，算法摒弃了非黑即白的“唯一最优解”逻辑，引入了基于余弦指数的权重分配机制。系统计算出每一块装甲板偏航角与中心视线的夹角 $\Delta \theta$，并通过强收敛函数 $W = \cos^{n}(\Delta \theta)$ 赋予其动态权重（其中 $n$ 为由参数 `switch_concentration` 决定的专注度）。
 最终的平滑瞄准点通过加权平均得出：
-$$ \vec{P}_{blend} = \frac{\sum_{j} W_j \cdot \vec{P}_{armor, j}}{\sum_{j} W_j} $$
+$$
+\vec{P}_{blend} = \frac{\sum_{j} W_j \cdot \vec{P}_{armor, j}}{\sum_{j} W_j}
+$$
 通过这种柔性融合，当旧装甲板逐渐偏离视线时，其权重如同缓释的曲线般逐渐归零，而新转入视野的装甲板权重则平滑地从零爬升。结果是，引导坐标在两块装甲板交接的虚空处画出了一条平滑的弧线，彻底根除了阶跃信号对云台控制的冲击。
 
 **第二层：径向的降维收缩 (Radial Threshold Shrinkage)**
@@ -252,12 +272,17 @@ $$ \vec{P}_{blend} = \frac{\sum_{j} W_j \cdot \vec{P}_{armor, j}}{\sum_{j} W_j} 
 
 ## 5. 弹道解算与时域动态滤波 (Ballistics & Time-Domain Command Filtering)
 
-完成了预瞄点的空间重塑后，任务的最后一棒交由 `BallisticsNode` 接管，它负责将空洞的三维坐标翻译为电机能够理解的绝对控制指令。
+完成了预瞄点的空间重塑后，任务的最后一棒交由 `BallisticsNode` 接管，它负责将三维坐标翻译为电机能够理解的绝对控制指令。
+
+**系统优势：基于完整序列的全局观解算**
+传统自瞄通常只向后级发送一个对应 $t_{predict}$ 时刻的单点坐标。然而，在面对高动态机动目标时，单点坐标完全丢失了目标在这一时刻前后的运动趋势（加速度信息）。本系统打破了这一局限：`BallisticsNode` 接收到的不再是单一的预瞄点，而是一整个包含了时间维度的 **3D 轨迹点序列 (Trajectory Sequence)**。这使得弹道解算器拥有了“全局视野”，它能洞察目标在击打瞬间的前后运动曲率，从而推导出极其平滑的前馈角速度，为云台电机提供完美的追踪引导。
 
 ### 5.1 考虑空间曲率的抛物线重力补偿 (Gravity Compensation via Parabolic Solver)
 虽然子弹的速度高达 25~30m/s，但在几米的交战距离上，地球重力带来的下坠依然会造成几厘米的致命偏差，这往往就是击中与脱靶的界限。
-算法首先将惯性系下的预测点严谨地转换到当前云台的相对坐标系（`gimbal_link`）下。取目标在水平面上的投影距离为 $d = \sqrt{x^2 + y^2}$，垂直高度差为 $z$。在忽略空气阻力的近似模型下，子弹以初速 $v$ 射出后，其命中目标的运动学轨迹方程可简化为：
-$$ z = d \cdot \tan(\theta) - \frac{g \cdot d^2}{2 \cdot v^2} \cdot \left(1 + \tan^2(\theta)\right) $$
+算法首先将惯性系下的整条轨迹序列严谨地逐点转换到当前云台的相对坐标系（`gimbal_link`）下。对于序列中的每一个点，取其在水平面上的投影距离为 $d = \sqrt{x^2 + y^2}$，垂直高度差为 $z$。在忽略空气阻力的近似模型下，子弹以初速 $v$ 射出后，其命中目标的运动学轨迹方程可简化为：
+$$
+z = d \cdot \tan(\theta) - \frac{g \cdot d^2}{2 \cdot v^2} \cdot \left(1 + \tan^2(\theta)\right)
+$$
 这是一个关于 $u = \tan(\theta)$ 的一元二次标准方程。节点在代码中通过求解该方程的判别式 $\Delta$，直接计算出精确的枪管仰角补偿量 $\theta_{pitch}$。为了保证程序的鲁棒性，当判别式 $\Delta < 0$ 意味着目标高度超出了物理极限射程时，算法会自动退化为不考虑重力的基础直线映射 $\arctan(z/d)$，以确保解算在任何极端条件下都不会崩溃或输出 NaN。
 
 ### 5.2 消除时间歧义的动态多项式拟合滤波 (Dynamic Polynomial Least-Squares Filter)
@@ -265,7 +290,9 @@ $$ z = d \cdot \tan(\theta) - \frac{g \cdot d^2}{2 \cdot v^2} \cdot \left(1 + \t
 
 为此，本系统抛弃了预计算的卷积系数，实现了完全基于序列真实时间戳的**动态最小二乘局部多项式拟合算法**。
 在面对一段长度为 $N$ 的预测角度序列及其对应的不规则时间偏移向量 $(t_i, y_i)$ 时，系统以中心预测时刻（$t=0$）为基准，实时构造范德蒙德矩阵 (Vandermonde Matrix) $X$：
-$$ X = \begin{bmatrix} 1 & t_0 & t_0^2 & \cdots & t_0^k \\ 1 & t_1 & t_1^2 & \cdots & t_1^k \\ \vdots & \vdots & \vdots & \ddots & \vdots \\ 1 & t_{N-1} & t_{N-1}^2 & \cdots & t_{N-1}^k \end{bmatrix} $$
+$$
+X = \begin{bmatrix} 1 & t_0 & t_0^2 & \cdots & t_0^k \\ 1 & t_1 & t_1^2 & \cdots & t_1^k \\ \vdots & \vdots & \vdots & \ddots & \vdots \\ 1 & t_{N-1} & t_{N-1}^2 & \cdots & t_{N-1}^k \end{bmatrix}
+$$
 随后，通过稳健的 QR 分解实时求解正规方程 $(X^T X)\beta = X^T Y$，直接获取多项式系数向量 $\beta$。在这个多项式中，$\beta_0$ 即代表在目标时刻精准平滑后的期望偏航角或俯仰角，而 $\beta_1$ 则是它在此时刻严格数学意义上的一阶导数（即我们苦苦追寻的前馈角速度）。
 这一算法不仅彻底免疫了时间戳抖动带来的干扰，更通过调整拟合阶数（推荐使用 4 阶），完美地适应了目标进行圆周旋转时在笛卡尔坐标系中投影出的高曲率正弦轨迹，将预测的顺滑度提升到了一个全新的理论高度。
 
