@@ -1,6 +1,8 @@
 #include "robot_manager/manager_node.hpp"
 #include "lifecycle_msgs/msg/state.hpp"
 #include "lifecycle_msgs/msg/transition.hpp"
+#include <thread>
+#include <future>
 
 namespace robot_manager {
 
@@ -31,19 +33,22 @@ void ManagerNode::modeCallback(const robot_interfaces::msg::Mode::SharedPtr msg)
         return;
     }
 
-    RCLCPP_INFO(this->get_logger(), "Mode changed to: %d", msg->mode);
+    uint8_t mode = msg->mode;
+    last_mode_ = mode;
 
-    if (msg->mode == 0) {
-        // Activate nodes
-        updateNodeState(detector_name_, lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
-        updateNodeState(solver_name_, lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
-    } else {
-        // Deactivate nodes
-        updateNodeState(detector_name_, lifecycle_msgs::msg::Transition::TRANSITION_DEACTIVATE);
-        updateNodeState(solver_name_, lifecycle_msgs::msg::Transition::TRANSITION_DEACTIVATE);
-    }
+    std::thread([this, mode]() {
+        RCLCPP_INFO(this->get_logger(), "Mode changed to: %d", mode);
 
-    last_mode_ = msg->mode;
+        if (mode == 1) {
+            // Activate nodes
+            updateNodeState(detector_name_, lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
+            updateNodeState(solver_name_, lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
+        } else {
+            // Deactivate nodes
+            updateNodeState(detector_name_, lifecycle_msgs::msg::Transition::TRANSITION_DEACTIVATE);
+            updateNodeState(solver_name_, lifecycle_msgs::msg::Transition::TRANSITION_DEACTIVATE);
+        }
+    }).detach();
 }
 
 uint8_t ManagerNode::getNodeState(const std::string& node_name) {
@@ -56,8 +61,7 @@ uint8_t ManagerNode::getNodeState(const std::string& node_name) {
     auto request = std::make_shared<lifecycle_msgs::srv::GetState::Request>();
     auto result_future = client->async_send_request(request);
     
-    if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), result_future, std::chrono::milliseconds(500)) != 
-        rclcpp::FutureReturnCode::SUCCESS) {
+    if (result_future.wait_for(std::chrono::milliseconds(500)) != std::future_status::ready) {
         return lifecycle_msgs::msg::State::PRIMARY_STATE_UNKNOWN;
     }
 
@@ -67,9 +71,8 @@ uint8_t ManagerNode::getNodeState(const std::string& node_name) {
 void ManagerNode::updateNodeState(const std::string& node_name, uint8_t transition) {
     auto client = (node_name == detector_name_) ? detector_change_state_client_ : solver_change_state_client_;
     
-    if (!client->wait_for_service(std::chrono::seconds(1))) {
-        RCLCPP_ERROR(this->get_logger(), "Service %s not available", client->get_service_name());
-        return;
+    while (!client->wait_for_service(std::chrono::seconds(1))) {
+        RCLCPP_WARN(this->get_logger(), "Service %s not available. Waiting...", client->get_service_name());
     }
 
     // Check current state to see if transition is valid
@@ -92,8 +95,10 @@ void ManagerNode::updateNodeState(const std::string& node_name, uint8_t transiti
     RCLCPP_INFO(this->get_logger(), "Requesting transition %d for node %s", transition, node_name.c_str());
     
     auto result_future = client->async_send_request(request);
-    // Note: async_send_request in a callback needs care if we use spin_until_future_complete.
-    // However, since this is a simple manager and not high frequency, we'll wait briefly.
+    
+    if (result_future.wait_for(std::chrono::milliseconds(500)) != std::future_status::ready) {
+        RCLCPP_ERROR(this->get_logger(), "Timeout waiting for state transition of %s", node_name.c_str());
+    }
 }
 
 } // namespace robot_manager

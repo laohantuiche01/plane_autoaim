@@ -8,13 +8,19 @@ hik_camera:
   ros__parameters:
     camera_info_url: "package://robot_bringup/config/default/camera_info.yaml"
     use_sensor_data_qos: true
-    exposure_time: 5000
+    exposure_time: 2500.0
+    height: 1080
+    offset_y: 0
     gain: 10.0
+    frame_rate: 120.0
+    k: [1800.6934143042636, 0.0, 706.3079996913679, 0.0, 1798.7788211368727, 582.3820392862021, 0.0, 0.0, 1.0]
+    d: [-0.08369000662881113, 0.15293784675197394, -0.0001574420968165169, 9.731791440156544e-05, 0.0]
 
 # Armor Detector
 armor_detector:
   ros__parameters:
     debug: true
+    enemy_color: "blue"
     detector:
       min_light_ratio: 0.1
       min_armor_ratio: 0.1
@@ -74,9 +80,9 @@ armor_solver:
       aim_delay_offset: 0.0
       num_points: 11
       dt: 0.05
-      omega_low: 1.5
-      omega_high: 4.0
-      switch_concentration: 20.0
+      omega_low: 8.0
+      omega_high: 12.0
+      switch_concentration: 40.0
 
 # Ballistics Node
 ballistics_node:
@@ -87,11 +93,11 @@ ballistics_node:
     aim_angle_tolerance: 0.05
     hit_yaw_offset: 0.0
     hit_pitch_offset: 0.0
-    aim_yaw_offset: 0.0
-    aim_pitch_offset: 0.0
-    enable_sg_yaw: true
+    aim_yaw_offset: 0.00872
+    aim_pitch_offset: -0.016
+    enable_sg_yaw: false
     sg_yaw_order: 2
-    enable_sg_pitch: true
+    enable_sg_pitch: false
     sg_pitch_order: 2
 
 # Manager

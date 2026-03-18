@@ -42,13 +42,13 @@ public:
 
     void aimCallback(const robot_interfaces::msg::Aim &aim) {
         aim_data_t aimData{};
-        aimData.pitch = aim.pitch;
-        aimData.yaw = aim.yaw;
-        aimData.w_pitch = aim.w_pitch;
-        aimData.w_yaw = aim.w_yaw;
+        aimData.pitch = robot_utils::rad_to_deg(aim.pitch);
+        aimData.yaw = robot_utils::rad_to_deg(aim.yaw);
+        aimData.w_pitch =  robot_utils::rad_to_deg(aim.w_pitch);
+        aimData.w_yaw = robot_utils::rad_to_deg(aim.w_yaw);
         aimData.success = aim.success;
         aimData.target_number = aim.target_number;
-        aimData.target_rate = aim.target_rate;
+        aimData.target_rate = 5;  //TODO
         if (!serial.write(0x81, aimData)) {
             RCLCPP_FATAL_STREAM(get_logger(), "Sending data failed!");
             exit(-1);
@@ -150,7 +150,6 @@ inline RobotCommunication::RobotCommunication() : Node("robot_communication") {
 
         robot_interfaces::msg::Mode mode;
         mode.mode = gimbalAndConfigData.mode;
-        mode.is_pressing = gimbalAndConfigData.is_pressing;
         modePublisher->publish(mode);
         return 0;
     });

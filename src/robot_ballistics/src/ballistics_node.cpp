@@ -67,16 +67,22 @@ void BallisticsNode::trajectoryCallback(const robot_interfaces::msg::TargetTraje
         return;
     }
 
-    geometry_msgs::msg::TransformStamped transform_stamped;
+    geometry_msgs::msg::TransformStamped odom_to_gimbal;
+    geometry_msgs::msg::TransformStamped gimbal_to_odom;
     try {
-        // Try to get transform at message timestamp with a small timeout
-        transform_stamped = tf_buffer_->lookupTransform(
+        // odom_to_gimbal: takes points from world to gimbal frame (for success check)
+        odom_to_gimbal = tf_buffer_->lookupTransform(
             gimbal_frame_, msg->header.frame_id, msg->header.stamp, rclcpp::Duration::from_seconds(0.005));
+        // gimbal_to_odom: gives gimbal position in world frame (for absolute angle calculation)
+        gimbal_to_odom = tf_buffer_->lookupTransform(
+            msg->header.frame_id, gimbal_frame_, msg->header.stamp, rclcpp::Duration::from_seconds(0.005));
     } catch (const tf2::ExtrapolationException& ex) {
         // If message time is slightly in the future, fallback to latest available transform
         try {
-            transform_stamped = tf_buffer_->lookupTransform(
+            odom_to_gimbal = tf_buffer_->lookupTransform(
                 gimbal_frame_, msg->header.frame_id, tf2::TimePointZero);
+            gimbal_to_odom = tf_buffer_->lookupTransform(
+                msg->header.frame_id, gimbal_frame_, tf2::TimePointZero);
         } catch (const tf2::TransformException& ex2) {
             RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "TF fallback error: %s", ex2.what());
             return;
@@ -90,22 +96,13 @@ void BallisticsNode::trajectoryCallback(const robot_interfaces::msg::TargetTraje
     std::vector<double> aim_yaw(num_points), aim_pitch(num_points);
 
     auto process_point = [&](const robot_interfaces::msg::TargetTrajectoryPoint& pt, double& yaw, double& pitch) {
-        geometry_msgs::msg::PoseStamped pt_in, pt_out;
-        pt_in.header.frame_id = msg->header.frame_id;
-        pt_in.header.stamp = msg->header.stamp;
-        pt_in.pose.position.x = pt.x;
-        pt_in.pose.position.y = pt.y;
-        pt_in.pose.position.z = pt.z;
-        pt_in.pose.orientation.w = 1.0;
+        // Calculate relative vector in world frame (odom) to get absolute angles
+        double dx = pt.x - gimbal_to_odom.transform.translation.x;
+        double dy = pt.y - gimbal_to_odom.transform.translation.y;
+        double dz = pt.z - gimbal_to_odom.transform.translation.z;
 
-        tf2::doTransform(pt_in, pt_out, transform_stamped);
-
-        double gx = pt_out.pose.position.x;
-        double gy = pt_out.pose.position.y;
-        double gz = pt_out.pose.position.z;
-
-        yaw = std::atan2(gy, gx);
-        pitch = BallisticsCalculator::calculatePitch(Eigen::Vector3d(gx, gy, gz), bullet_speed_);
+        yaw = std::atan2(dy, dx);
+        pitch = BallisticsCalculator::calculatePitch(Eigen::Vector3d(dx, dy, dz), bullet_speed_);
     };
 
     Eigen::Vector3d center_true_pt_gimbal, center_aim_pt_gimbal;
@@ -133,17 +130,18 @@ void BallisticsNode::trajectoryCallback(const robot_interfaces::msg::TargetTraje
             geometry_msgs::msg::PoseStamped pt_in, pt_out;
             pt_in.header.frame_id = msg->header.frame_id;
             pt_in.header.stamp = msg->header.stamp;
+            pt_in.pose.orientation.w = 1.0;
             
             pt_in.pose.position.x = msg->true_trajectory[i].x;
             pt_in.pose.position.y = msg->true_trajectory[i].y;
             pt_in.pose.position.z = msg->true_trajectory[i].z;
-            tf2::doTransform(pt_in, pt_out, transform_stamped);
+            tf2::doTransform(pt_in, pt_out, odom_to_gimbal);
             center_true_pt_gimbal = get_offset_pt(Eigen::Vector3d(pt_out.pose.position.x, pt_out.pose.position.y, pt_out.pose.position.z), hit_yaw_offset_, hit_pitch_offset_);
             
             pt_in.pose.position.x = msg->aim_trajectory[i].x;
             pt_in.pose.position.y = msg->aim_trajectory[i].y;
             pt_in.pose.position.z = msg->aim_trajectory[i].z;
-            tf2::doTransform(pt_in, pt_out, transform_stamped);
+            tf2::doTransform(pt_in, pt_out, odom_to_gimbal);
             center_aim_pt_gimbal = get_offset_pt(Eigen::Vector3d(pt_out.pose.position.x, pt_out.pose.position.y, pt_out.pose.position.z), aim_yaw_offset_, aim_pitch_offset_);
         }
     }
@@ -198,6 +196,7 @@ void BallisticsNode::trajectoryCallback(const robot_interfaces::msg::TargetTraje
     aim_cmd.pitch = final_aim_pitch;
     aim_cmd.w_yaw = final_w_yaw;
     aim_cmd.w_pitch = final_w_pitch;
+	aim_cmd.target_number = 1;
     aim_cmd.success = success;
     
     aim_pub_->publish(aim_cmd);

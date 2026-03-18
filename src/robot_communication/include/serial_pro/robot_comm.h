@@ -9,8 +9,8 @@
 
 namespace robot {
     message_data head {
-        uint8_t header = 0xaa;
-        uint16_t length = 0;
+        uint8_t header = 0xFF;
+        uint8_t length = 0;
         uint8_t id = 0;
     };
 
@@ -36,18 +36,18 @@ namespace robot {
                 h.length = s + sizeof(head) + sizeof(tail);
             });
             registerSetter([](tail &t, const uint8_t *data, int s) {
-                t.crc8 = ms::crc8check(data, s);
+                t.crc8 = 0x0D;//ms::crc8check(data, s);
             });
 
             registerChecker([](const head &h) -> int {
-                if (h.header == 0xaa) {
+                if (h.header == 0xFF) {
                     return ok;
                 } else {
                     return sofError;
                 }
             });
             registerChecker([](const tail &t, const uint8_t *data, int s) -> int {
-                if (t.crc8 == ms::crc8check(data, s)) {
+                if (t.crc8 == 0x0D) {
                     return ok;
                 } else {
                     return crcError;

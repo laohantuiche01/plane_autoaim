@@ -25,9 +25,9 @@ HikCameraDriver::HikCameraDriver(const rclcpp::NodeOptions &options) : Node("cam
     declare_parameter("frame_rate", 250.0);
     declare_parameter("delay_ratio", 0.0);
     declare_parameter("width", 1440);
-    declare_parameter("height", 520);
+    declare_parameter("height", 1080);
     declare_parameter("offset_x", 0);
-    declare_parameter("offset_y", 280);
+    declare_parameter("offset_y", 0);
     declare_parameter("bit_depth", "Bits_8");
     declare_parameter("k", std::vector<double>({
                           4637.68, 0, 720,
@@ -45,8 +45,8 @@ HikCameraDriver::HikCameraDriver(const rclcpp::NodeOptions &options) : Node("cam
     get_parameter("offset_x", offset_x_);
     get_parameter("offset_y", offset_y_);
 
-    imagePublisher = create_publisher<RosImage>("image_raw", 10);
-    cameraInfoPublisher = create_publisher<CameraInfo>("camera_info", 1);
+    imagePublisher = create_publisher<RosImage>("image_raw", rclcpp::SensorDataQoS());
+    cameraInfoPublisher = create_publisher<CameraInfo>("image_raw_info", 1);
     timer = create_wall_timer(std::chrono::duration<double>(1.0 / frame_rate_),
                               std::bind(&HikCameraDriver::cameraCallback, this));
     onSetParametersCallbackHandle = add_on_set_parameters_callback(

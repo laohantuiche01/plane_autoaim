@@ -40,7 +40,7 @@ namespace sp {
         void readLoop() {
             while (running) {
                 char buffer[MAX_READ_ONCE_CHAR];
-                int len = serial.readBytes(buffer, MAX_READ_ONCE_CHAR, 100);
+                int len = serial.readBytes(buffer, MAX_READ_ONCE_CHAR, 1);
                 if (len > 0) {
                     listener.push(buffer, len);
                 } else if (len < 0) {
@@ -108,7 +108,7 @@ namespace sp {
                     len = MAX_READ_ONCE_CHAR;
                 }
                 char buffer[MAX_READ_ONCE_CHAR];
-                len = serial.readBytes(buffer, len, 100);
+                len = serial.readBytes(buffer, len, 1);
                 if (len > 0) {
                     listener.push(buffer, len);
                 } else if (len < 0) {

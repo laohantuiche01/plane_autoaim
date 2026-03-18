@@ -51,6 +51,7 @@ namespace ms {
             if ((size_t) rxBuffer.size() < sizeof(Head) + sizeof(Tail)) {
                 return false;
             }
+
             bool okHeadFound = false;
             bool frameFound = false;
             for (int i = 0; (size_t) i <= (size_t) rxBuffer.size() - sizeof(Head) - sizeof(Tail); i++) {

@@ -12,13 +12,15 @@
 #define GIMBAL_AND_CONFIG_SEND_ID 0x14
 
 message_data aim_data_t {
-    float yaw;
+    uint8_t success;
     float pitch;
-    float w_yaw;
+    float yaw;
+    float distance;
     float w_pitch;
+    float w_yaw;
+    float jmp_time;
     uint8_t target_rate;
     uint8_t target_number;
-    uint8_t success;
 };
 
 message_data chassis_control_data_t {
@@ -61,13 +63,10 @@ message_data tyre_speed_data_t {
 };
 
 message_data gimbal_and_config_data_t {
-    float pitch;
-    float roll;
-    float yaw;
-    uint8_t is_pressing;
     uint8_t mode;
-    uint8_t mode_config[8];
-    uint8_t camera_id;
+    float roll;
+    float pitch;
+    float yaw;
 };
 
 message_data record_data_t {
