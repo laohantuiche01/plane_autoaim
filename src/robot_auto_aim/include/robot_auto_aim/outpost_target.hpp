@@ -15,7 +15,7 @@ public:
 
     OutpostTarget();
     
-    void init(const TrackerArmor& armor) override;
+    void init(const TrackerArmor& armor, const GeometricParams& init_geo = GeometricParams()) override;
 
     void predict(const rclcpp::Time& time) override;
 
@@ -41,6 +41,8 @@ public:
     std::vector<Eigen::Vector4d> getResolvedArmors() const override;
     
     Eigen::VectorXd getPredictedState(const rclcpp::Time& time) const override;
+
+    GeometricParams getGeometricParams() const override;
 
 private:
     enum class ConfirmationState {

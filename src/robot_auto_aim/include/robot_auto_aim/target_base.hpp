@@ -37,11 +37,18 @@ struct TargetParams {
     double max_yaw_cov;
 };
 
+struct GeometricParams {
+    double r = 0;
+    double l = 0;
+    double h = 0;
+    ArmorType even_armor_type = ArmorType::INVALID;
+};
+
 class TargetBase {
 public:
     virtual ~TargetBase() = default;
 
-    virtual void init(const TrackerArmor& armor) = 0;
+    virtual void init(const TrackerArmor& armor, const GeometricParams& init_geo = GeometricParams()) = 0;
     virtual void predict(const rclcpp::Time& time) = 0;
     virtual bool update(const TrackerArmor& armor) = 0;
 
@@ -63,6 +70,7 @@ public:
 
     virtual std::vector<Eigen::Vector4d> getResolvedArmors() const = 0;
     virtual Eigen::VectorXd getPredictedState(const rclcpp::Time& time) const = 0;
+    virtual GeometricParams getGeometricParams() const = 0;
 };
 
 } // namespace robot_auto_aim

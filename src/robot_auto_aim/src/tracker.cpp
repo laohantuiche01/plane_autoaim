@@ -64,9 +64,13 @@ std::shared_ptr<TargetBase> Tracker::track(const std::vector<TrackerArmor>& armo
     }
 
     if ((state_ == State::TRACKING || state_ == State::TEMP_LOST) && target_) {
+        bool converged = target_->isConverged();
+        if (converged) {
+            geo_cache_[target_->getName()] = target_->getGeometricParams();
+        }
         RCLCPP_INFO_THROTTLE(logger, *clock_, 1000, 
             "Tracking target: %s, Converged: %s", 
-            target_->getName().c_str(), target_->isConverged() ? "YES" : "NO");
+            target_->getName().c_str(), converged ? "YES" : "NO");
     }
 
     return (state_ == State::TRACKING || state_ == State::TEMP_LOST) ? target_ : nullptr;
@@ -94,6 +98,39 @@ void Tracker::handleTimeouts(const rclcpp::Time& time) {
 }
 
 void Tracker::initTarget(const TrackerArmor& armor) {
+    GeometricParams init_geo;
+    if (geo_cache_.count(armor.number)) {
+        init_geo = geo_cache_[armor.number];
+        
+        // Disambiguation for Robot targets (4 armors)
+        if (armor.number != "outpost") {
+            // If current armor type differs from cached ID 0 type, 
+            // it means we are likely seeing the 'Odd' side (ID 1 or 3).
+            if (init_geo.even_armor_type != ArmorType::INVALID && armor.type != init_geo.even_armor_type) {
+                double old_r = init_geo.r;
+                double old_l = init_geo.l;
+                double old_h = init_geo.h;
+                // 'Rotate' the geometry 90 degrees to make the current armor the new ID 0
+                init_geo.r = old_r + old_l;
+                init_geo.l = -old_l;
+                init_geo.h = -old_h;
+                // Note: init_geo.even_armor_type would now be armor.type, 
+                // which will be updated naturally when it converges again.
+            }
+        }
+
+        // Basic range validation to ensure cached params are sane
+        if (armor.number == "outpost") {
+            if (init_geo.r < 0.1 || init_geo.r > 0.5 || init_geo.h < 0.05 || init_geo.h > 0.2) {
+                init_geo = GeometricParams(); 
+            }
+        } else {
+            if (init_geo.r < 0.05 || init_geo.r > 0.6) {
+                init_geo = GeometricParams(); 
+            }
+        }
+    }
+
     if (armor.number == "outpost") {
         target_ = std::make_shared<OutpostTarget>();
         RCLCPP_INFO(rclcpp::get_logger("tracker"), "Initializing OutpostTarget.");
@@ -105,7 +142,7 @@ void Tracker::initTarget(const TrackerArmor& armor) {
         target_->setUKFParams(ukf_alpha_, ukf_beta_, ukf_kappa_);
         target_->updateParams(robot_params_);
     }
-    target_->init(armor);
+    target_->init(armor, init_geo);
 }
 
 bool Tracker::updateTarget(const std::vector<TrackerArmor>& armors, const rclcpp::Time& time) {

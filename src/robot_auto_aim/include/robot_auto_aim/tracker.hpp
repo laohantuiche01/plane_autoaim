@@ -1,6 +1,7 @@
 #ifndef ROBOT_AUTO_AIM__TRACKER_HPP_
 #define ROBOT_AUTO_AIM__TRACKER_HPP_
 
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -52,6 +53,8 @@ private:
     
     State state_;
     std::shared_ptr<TargetBase> target_;
+
+    std::map<std::string, GeometricParams> geo_cache_;
     
     rclcpp::Clock::SharedPtr clock_;
     

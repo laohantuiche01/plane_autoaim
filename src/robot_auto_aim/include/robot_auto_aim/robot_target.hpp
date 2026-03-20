@@ -13,7 +13,7 @@ public:
 
     RobotTarget();
     
-    void init(const TrackerArmor& armor) override;
+    void init(const TrackerArmor& armor, const GeometricParams& init_geo = GeometricParams()) override;
 
     void predict(const rclcpp::Time& time) override;
 
@@ -36,11 +36,13 @@ public:
     }
 
     void setUKFParams(double alpha, double beta, double kappa) override {
-        Eigen::VectorXd current_x = ukf_.getState();
-        Eigen::MatrixXd current_P = ukf_.getCovariance();
-        ukf_ = robot_utils::UKF<STATE_DIM>(alpha, beta, kappa);
-        if (current_x.size() == STATE_DIM) {
-            ukf_.init(current_x, current_P);
+        for (int i = 0; i < 2; ++i) {
+            Eigen::VectorXd current_x = ukfs_[i].getState();
+            Eigen::MatrixXd current_P = ukfs_[i].getCovariance();
+            ukfs_[i] = robot_utils::UKF<STATE_DIM>(alpha, beta, kappa);
+            if (current_x.size() == STATE_DIM) {
+                ukfs_[i].init(current_x, current_P);
+            }
         }
     }
 
@@ -49,8 +51,8 @@ public:
     bool isDiverged() const override;
 
     // Getters
-    Eigen::VectorXd getState() const override { return ukf_.getState(); }
-    Eigen::MatrixXd getCovariance() const override { return ukf_.getCovariance(); }
+    Eigen::VectorXd getState() const override { return ukfs_[best_ukf_idx_].getState(); }
+    Eigen::MatrixXd getCovariance() const override { return ukfs_[best_ukf_idx_].getCovariance(); }
     const std::string& getName() const override { return name_; }
     ArmorType getType() const override { return type_; }
     int getArmorNum() const override { return armor_num_; }
@@ -61,10 +63,21 @@ public:
     
     Eigen::VectorXd getPredictedState(const rclcpp::Time& time) const override;
 
+    GeometricParams getGeometricParams() const override;
+
 private:
+    enum class ConfirmationState {
+        CONFIRMING,
+        CONFIRMED
+    };
+
     Eigen::Vector4d h(const Eigen::VectorXd& x, int id) const;
 
-    robot_utils::UKF<STATE_DIM> ukf_;
+    robot_utils::UKF<STATE_DIM> ukfs_[2];
+    double accumulated_errors_[2];
+    int best_ukf_idx_;
+    ConfirmationState confirmation_state_;
+    int armor_switch_count_;
     
     std::string name_;
     ArmorType type_;

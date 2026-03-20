@@ -24,7 +24,7 @@ OutpostTarget::OutpostTarget()
     }
 }
 
-void OutpostTarget::init(const TrackerArmor& armor) {
+void OutpostTarget::init(const TrackerArmor& armor, const GeometricParams& init_geo) {
     name_ = armor.number;
     type_ = armor.type;
     priority_ = armor.priority;
@@ -32,8 +32,8 @@ void OutpostTarget::init(const TrackerArmor& armor) {
     confirmation_state_ = ConfirmationState::CONFIRMING;
     best_ukf_idx_ = 0;
 
-    double r_init = 0.25; // Initial guess for outpost radius
-    double h_init = 0.102; // Initial guess for height difference
+    double r_init = (init_geo.r > 0) ? init_geo.r : 0.25; // Initial guess for outpost radius
+    double h_init = (init_geo.h > 0) ? init_geo.h : 0.102; // Initial guess for height difference
     
     Eigen::Matrix<double, STATE_DIM, STATE_DIM> P0 = Eigen::Matrix<double, STATE_DIM, STATE_DIM>::Identity();
     P0.block<3, 3>(0, 0) *= 0.1; // cx, cy, cz
@@ -265,6 +265,11 @@ Eigen::VectorXd OutpostTarget::getPredictedState(const rclcpp::Time& time) const
         x(3) += x(4) * dt; 
         x(3) = robot_utils::normalize_angle(x(3)); 
     } return x;
+}
+
+GeometricParams OutpostTarget::getGeometricParams() const {
+    const auto x = ukfs_[best_ukf_idx_].getState();
+    return {x(5), 0, x(6)};
 }
 
 } // namespace robot_auto_aim

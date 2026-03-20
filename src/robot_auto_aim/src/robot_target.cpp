@@ -5,8 +5,8 @@
 namespace robot_auto_aim {
 
 RobotTarget::RobotTarget() 
-    : ukf_(0.001, 2.0, 0.0),
-      armor_num_(4), priority_(0), last_time_(0), last_armor_id_(0), update_count_(0),
+    : armor_num_(4), priority_(0), last_time_(0), last_armor_id_(0), update_count_(0),
+      best_ukf_idx_(0), confirmation_state_(ConfirmationState::CONFIRMED),
       q_x_(0.001), q_y_(0.001), q_z_(0.001), 
       q_vx_(0.1), q_vy_(0.01), q_vz_(0.1),
       q_yaw_(0.01), q_v_yaw_(0.001), q_geo_(0.0001),
@@ -14,31 +14,65 @@ RobotTarget::RobotTarget()
       dist_scale_coeff_(0.1), z_scale_coeff_(5.0),
       min_update_count_(5), max_pos_cov_(3.0), max_yaw_cov_(1.0),
       adaptive_tracking_(false), q_alpha_(0.1) { 
+    for (int i = 0; i < 2; ++i) {
+        ukfs_[i] = robot_utils::UKF<STATE_DIM>(0.001, 2.0, 0.0);
+        accumulated_errors_[i] = 0.0;
+    }
 }
 
-void RobotTarget::init(const TrackerArmor& armor) {
+void RobotTarget::init(const TrackerArmor& armor, const GeometricParams& init_geo) {
     name_ = armor.number;
     type_ = armor.type;
     priority_ = armor.priority;
-    
-    double r = 0.2; 
-    double yaw = armor.yaw;
-    
-    double cx = armor.position.x() + r * std::cos(yaw);
-    double cy = armor.position.y() + r * std::sin(yaw);
-    double cz = armor.position.z();
-    
-    Eigen::Matrix<double, STATE_DIM, 1> x0;
-    x0 << cx, 0, cy, 0, cz, 0, yaw, 0.0, r, 0, 0;
-    
+    last_time_ = armor.timestamp;
+    update_count_ = 1;
+    armor_switch_count_ = 0;
+    last_armor_id_ = 0;
+
     Eigen::Matrix<double, STATE_DIM, STATE_DIM> P0 = Eigen::Matrix<double, STATE_DIM, STATE_DIM>::Identity();
     P0.block<6, 6>(0, 0) *= 0.1;
     P0(1, 1) = 10.0; P0(3, 3) = 10.0; P0(5, 5) = 10.0;
     P0(6, 6) = 0.5;
     P0(7, 7) = 100.0;
     P0(8, 8) = 0.1; P0(9, 9) = 0.1; P0(10, 10) = 0.1;
-    
-    ukf_.init(x0, P0);
+
+    if (init_geo.r > 1e-3) {
+        confirmation_state_ = ConfirmationState::CONFIRMING;
+        best_ukf_idx_ = 0;
+
+        // Hypothesis 0: Current armor is ID 0 or 2 (Even side)
+        double r0 = init_geo.r;
+        double l0 = init_geo.l;
+        double h0 = init_geo.h;
+        double cx0 = armor.position.x() + r0 * std::cos(armor.yaw);
+        double cy0 = armor.position.y() + r0 * std::sin(armor.yaw);
+        Eigen::Matrix<double, STATE_DIM, 1> x0;
+        x0 << cx0, 0, cy0, 0, armor.position.z(), 0, armor.yaw, 0.0, r0, l0, h0;
+        ukfs_[0].init(x0, P0);
+        accumulated_errors_[0] = 0.0;
+
+        // Hypothesis 1: Current armor is ID 1 or 3 (Odd side)
+        // Rotate 90 degrees: r_new = r_old + l_old, l_new = -l_old, h_new = -h_old
+        double r1 = init_geo.r + init_geo.l;
+        double l1 = -init_geo.l;
+        double h1 = -init_geo.h;
+        double cx1 = armor.position.x() + r1 * std::cos(armor.yaw);
+        double cy1 = armor.position.y() + r1 * std::sin(armor.yaw);
+        Eigen::Matrix<double, STATE_DIM, 1> x1;
+        x1 << cx1, 0, cy1, 0, armor.position.z() - h1, 0, armor.yaw, 0.0, r1, l1, h1;
+        ukfs_[1].init(x1, P0);
+        accumulated_errors_[1] = 0.0;
+
+    } else {
+        confirmation_state_ = ConfirmationState::CONFIRMED;
+        best_ukf_idx_ = 0;
+        double r = 0.2; 
+        double cx = armor.position.x() + r * std::cos(armor.yaw);
+        double cy = armor.position.y() + r * std::sin(armor.yaw);
+        Eigen::Matrix<double, STATE_DIM, 1> x0;
+        x0 << cx, 0, cy, 0, armor.position.z(), 0, armor.yaw, 0.0, r, 0, 0;
+        ukfs_[0].init(x0, P0);
+    }
     
     Q_adaptive_ = Eigen::Matrix<double, STATE_DIM, STATE_DIM>::Zero();
     Q_adaptive_(0,0) = q_x_; Q_adaptive_(2,2) = q_y_; Q_adaptive_(4,4) = q_z_;
@@ -46,9 +80,6 @@ void RobotTarget::init(const TrackerArmor& armor) {
     Q_adaptive_(6,6) = q_yaw_;
     Q_adaptive_(7,7) = q_v_yaw_;
     Q_adaptive_(8,8) = Q_adaptive_(9,9) = Q_adaptive_(10,10) = q_geo_;
-    
-    last_time_ = armor.timestamp;
-    update_count_ = 1;
 }
 
 void RobotTarget::predict(const rclcpp::Time& time) {
@@ -75,114 +106,138 @@ void RobotTarget::predict(const rclcpp::Time& time) {
         x(6) = std::atan2(std::sin(x(6)), std::cos(x(6)));
     };
     
-    ukf_.predict(f, adaptive_tracking_ ? Q_adaptive_ : Q, normalize_yaw);
+    if (confirmation_state_ == ConfirmationState::CONFIRMING) {
+        for (int i = 0; i < 2; ++i) {
+            ukfs_[i].predict(f, adaptive_tracking_ ? Q_adaptive_ : Q, normalize_yaw);
+        }
+    } else {
+        ukfs_[best_ukf_idx_].predict(f, adaptive_tracking_ ? Q_adaptive_ : Q, normalize_yaw);
+    }
     last_time_ = time;
 }
 
 bool RobotTarget::update(const TrackerArmor& armor) {
-    const auto x = ukf_.getState();
-    double current_yaw = x(6);
-    
-    int best_id = 0;
-    double min_angle_err = 1e10;
-    for (int i = 0; i < 4; ++i) {
-        double armor_angle = current_yaw + i * M_PI / 2.0;
-        double angle_err = std::abs(std::atan2(std::sin(armor.yaw - armor_angle), std::cos(armor.yaw - armor_angle)));
-        if (angle_err < min_angle_err) {
-            min_angle_err = angle_err;
-            best_id = i;
-        }
-    }
-    
     Eigen::Vector4d z;
     z << armor.position.x(), armor.position.y(), armor.position.z(), armor.yaw;
     
-    // --- Dynamic R Calculation ---
-    // 1. Base noises in camera frame (Z-axis is depth, noise is higher)
-    // Distance scaling factor
     double dist = armor.position.norm();
     double dist_scale = 1.0 + dist_scale_coeff_ * dist * dist;
-    
-    // R in Camera Frame: X_c, Y_c, Z_c
-    // Typically, lateral noise (X, Y) < depth noise (Z)
     Eigen::Matrix3d R_pos_cam = Eigen::Matrix3d::Zero();
     R_pos_cam(0, 0) = r_x_ * dist_scale;
     R_pos_cam(1, 1) = r_y_ * dist_scale;
-    R_pos_cam(2, 2) = r_z_ * z_scale_coeff_ * dist_scale; // Z noise is significantly larger
-    
-    // 2. Rotate camera-frame noise to world frame (Odom)
+    R_pos_cam(2, 2) = r_z_ * z_scale_coeff_ * dist_scale;
     Eigen::Matrix3d rot = armor.orientation.toRotationMatrix();
     Eigen::Matrix3d R_pos_world = rot * R_pos_cam * rot.transpose();
     
-    Eigen::Matrix4d R = Eigen::Matrix4d::Zero();
-    R.block<3, 3>(0, 0) = R_pos_world;
-    R(3, 3) = (best_id == last_armor_id_) ? r_yaw_ : r_yaw_ * r_yaw_adaptive_factor_;
-    // -----------------------------
-
-    auto h_func = [this, best_id](const Eigen::Matrix<double, STATE_DIM, 1>& x_in) {
-        return this->h(x_in, best_id);
-    };
     auto normalize_meas = [](Eigen::Vector4d& z_diff) {
         z_diff(3) = std::atan2(std::sin(z_diff(3)), std::cos(z_diff(3)));
     };
     auto normalize_state = [](Eigen::Matrix<double, STATE_DIM, 1>& x_diff) {
         x_diff(6) = std::atan2(std::sin(x_diff(6)), std::cos(x_diff(6)));
     };
-    
-    bool success = false;
-    if (adaptive_tracking_) {
-        Eigen::Matrix<double, STATE_DIM, STATE_DIM> Q_base = Eigen::Matrix<double, STATE_DIM, STATE_DIM>::Zero();
-        Q_base(0,0) = q_x_; Q_base(2,2) = q_y_; Q_base(4,4) = q_z_;
-        Q_base(1,1) = q_vx_; Q_base(3,3) = q_vy_; Q_base(5,5) = q_vz_;
-        Q_base(6,6) = q_yaw_;
-        Q_base(7,7) = q_v_yaw_;
-        Q_base(8,8) = Q_base(9,9) = Q_base(10,10) = q_geo_;
-        
-        success = ukf_.updateAdaptiveQ<MEAS_DIM>(z, h_func, R, Q_adaptive_, Q_base, q_alpha_, normalize_meas, normalize_state, 15.0);
-        
-        if (success && (update_count_ % 20 == 0)) {
-            double max_ratio = 1.0;
-            int max_idx = -1;
-            for (int i = 0; i < STATE_DIM; ++i) {
-                if (Q_base(i, i) > 1e-7) {
-                    double ratio = Q_adaptive_(i, i) / Q_base(i, i);
-                    if (ratio > max_ratio) {
-                        max_ratio = ratio;
-                        max_idx = i;
-                    }
+
+    bool any_success = false;
+
+    if (confirmation_state_ == ConfirmationState::CONFIRMING) {
+        int current_best_id = 0;
+        for (int k = 0; k < 2; ++k) {
+            const auto x = ukfs_[k].getState();
+            int best_id = 0;
+            double min_combined_err = 1e10;
+            for (int i = 0; i < 4; ++i) {
+                Eigen::Vector4d pred = h(x, i);
+                double pos_err = (armor.position - pred.head<3>()).norm();
+                double ang_err = std::abs(std::atan2(std::sin(armor.yaw - pred(3)), std::cos(armor.yaw - pred(3))));
+                double err = pos_err * 10.0 + ang_err;
+                if (err < min_combined_err) {
+                    min_combined_err = err;
+                    best_id = i;
                 }
             }
-            if (max_ratio > 1.5) {
-                RCLCPP_INFO(rclcpp::get_logger("robot_target"), 
-                    "Adaptive Q inflated! Max Ratio: %.2fx at Index: %d (Base: %.6f, Adaptive: %.6f)", 
-                    max_ratio, max_idx, Q_base(max_idx, max_idx), Q_adaptive_(max_idx, max_idx));
+            accumulated_errors_[k] += min_combined_err;
+            if (k == 0) current_best_id = best_id; 
+
+            Eigen::Matrix4d R = Eigen::Matrix4d::Zero();
+            R.block<3, 3>(0, 0) = R_pos_world;
+            R(3, 3) = (best_id == last_armor_id_) ? r_yaw_ : r_yaw_ * r_yaw_adaptive_factor_;
+
+            auto h_func = [this, best_id](const Eigen::Matrix<double, STATE_DIM, 1>& x_in) {
+                return this->h(x_in, best_id);
+            };
+            if (ukfs_[k].update<MEAS_DIM>(z, h_func, R, normalize_meas, normalize_state, 15.0)) {
+                any_success = true;
             }
         }
+
+        if (current_best_id != last_armor_id_) {
+            armor_switch_count_++;
+            last_armor_id_ = current_best_id;
+        }
+
+        if (armor_switch_count_ >= 2 || update_count_ >= 100) {
+            best_ukf_idx_ = (accumulated_errors_[0] < accumulated_errors_[1]) ? 0 : 1;
+            confirmation_state_ = ConfirmationState::CONFIRMED;
+            RCLCPP_INFO(rclcpp::get_logger("robot_target"), 
+                "Hypothesis confirmed after %d switches! Best index: %d, Total updates: %d", 
+                armor_switch_count_, best_ukf_idx_, update_count_);
+        }
     } else {
-        success = ukf_.update<MEAS_DIM>(z, h_func, R, normalize_meas, normalize_state, 15.0);
+        const auto x = ukfs_[best_ukf_idx_].getState();
+        int best_id = 0;
+        double min_angle_err = 1e10;
+        for (int i = 0; i < 4; ++i) {
+            double armor_angle = x(6) + i * M_PI / 2.0;
+            double angle_err = std::abs(std::atan2(std::sin(armor.yaw - armor_angle), std::cos(armor.yaw - armor_angle)));
+            if (angle_err < min_angle_err) {
+                min_angle_err = angle_err;
+                best_id = i;
+            }
+        }
+        
+        Eigen::Matrix4d R = Eigen::Matrix4d::Zero();
+        R.block<3, 3>(0, 0) = R_pos_world;
+        R(3, 3) = (best_id == last_armor_id_) ? r_yaw_ : r_yaw_ * r_yaw_adaptive_factor_;
+
+        auto h_func = [this, best_id](const Eigen::Matrix<double, STATE_DIM, 1>& x_in) {
+            return this->h(x_in, best_id);
+        };
+        
+        if (adaptive_tracking_) {
+            Eigen::Matrix<double, STATE_DIM, STATE_DIM> Q_base = Eigen::Matrix<double, STATE_DIM, STATE_DIM>::Zero();
+            Q_base(0,0) = q_x_; Q_base(2,2) = q_y_; Q_base(4,4) = q_z_;
+            Q_base(1,1) = q_vx_; Q_base(3,3) = q_vy_; Q_base(5,5) = q_vz_;
+            Q_base(6,6) = q_yaw_; Q_base(7,7) = q_v_yaw_;
+            Q_base(8,8) = Q_base(9,9) = Q_base(10,10) = q_geo_;
+            if (ukfs_[best_ukf_idx_].updateAdaptiveQ<MEAS_DIM>(z, h_func, R, Q_adaptive_, Q_base, q_alpha_, normalize_meas, normalize_state, 15.0)) {
+                any_success = true;
+            }
+        } else {
+            if (ukfs_[best_ukf_idx_].update<MEAS_DIM>(z, h_func, R, normalize_meas, normalize_state, 15.0)) {
+                any_success = true;
+            }
+        }
+        last_armor_id_ = best_id;
     }
     
-    if (success) {
+    if (any_success) {
         update_count_++;
-        last_armor_id_ = best_id;
         return true;
     }
     return false;
 }
 
 bool RobotTarget::isConverged() const {
-    const auto& cov = ukf_.getCovariance().diagonal();
-    // Position (x:0, y:2, z:4) and Angle (yaw:6)
+    const auto& cov = ukfs_[best_ukf_idx_].getCovariance().diagonal();
     return update_count_ > min_update_count_ && 
            cov(0) < max_pos_cov_ && cov(2) < max_pos_cov_ && cov(4) < max_pos_cov_ && 
            cov(6) < max_yaw_cov_;
 }
 
 bool RobotTarget::isDiverged() const {
-    const auto& x = ukf_.getState();
-    const auto& cov = ukf_.getCovariance().diagonal();
-    if (cov.head<3>().maxCoeff() > 100.0) return true;
-    if (x.head<3>().norm() > 40.0) return true;
+    const auto& x = ukfs_[best_ukf_idx_].getState();
+    const auto& cov = ukfs_[best_ukf_idx_].getCovariance().diagonal();
+    if (cov.head<3>().maxCoeff() > 1000.0) return true;
+    if (x.head<3>().norm() > 400.0) return true;
     if (x(8) < 0.05 || x(8) > 0.6) return true; 
     return false;
 }
@@ -202,7 +257,7 @@ Eigen::Vector4d RobotTarget::h(const Eigen::VectorXd& x, int id) const {
 
 std::vector<Eigen::Vector4d> RobotTarget::getResolvedArmors() const {
     std::vector<Eigen::Vector4d> armors;
-    const auto x = ukf_.getState();
+    const auto x = ukfs_[best_ukf_idx_].getState();
     for (int i = 0; i < 4; ++i) {
         armors.push_back(h(x, i));
     }
@@ -211,7 +266,7 @@ std::vector<Eigen::Vector4d> RobotTarget::getResolvedArmors() const {
 
 Eigen::VectorXd RobotTarget::getPredictedState(const rclcpp::Time& time) const {
     double dt = (time - last_time_).seconds();
-    auto x = ukf_.getState();
+    auto x = ukfs_[best_ukf_idx_].getState();
     if (dt > 0) {
         x(0) += x(1) * dt; 
         x(2) += x(3) * dt; 
@@ -220,6 +275,11 @@ Eigen::VectorXd RobotTarget::getPredictedState(const rclcpp::Time& time) const {
         x(6) = std::atan2(std::sin(x(6)), std::cos(x(6)));
     }
     return x;
+}
+
+GeometricParams RobotTarget::getGeometricParams() const {
+    const auto x = ukfs_[best_ukf_idx_].getState();
+    return {x(8), x(9), x(10), type_};
 }
 
 } // namespace robot_auto_aim
