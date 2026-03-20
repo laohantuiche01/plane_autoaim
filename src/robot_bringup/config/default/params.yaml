@@ -85,21 +85,21 @@ armor_solver:
       max_yaw_cov: 1.0
       min_update_count: 5
       q_alpha: 0.1
-      q_geo: 0.0001
+      q_geo: 0.001
       q_v_yaw: 5.0
       q_vx: 500.0
       q_vy: 500.0
       q_vz: 10.0
       q_x: 1.0
       q_y: 1.0
-      q_yaw: 0.01
+      q_yaw: 0.1
       q_z: 0.1
       r_x: 0.5
       r_y: 0.5
       r_yaw: 0.05
       r_yaw_adaptive_factor: 50.0
       r_z: 0.5
-      z_scale_coeff: 5.0
+      z_scale_coeff: 1.1
     trajectory:
       aim_delay_offset: 0.0
       dt: 0.05
