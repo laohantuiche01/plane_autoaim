@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CycloneDDS xmlns="https://cyclonedds.io/schema/cyclonedds" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cyclonedds.io/schema/cyclonedds https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+    <Domain id="any">
+        <General>
+            <!-- Allow DDS to choose the best interface automatically, but ensure multicast is on for discovery -->
+            <AllowMulticast>true</AllowMulticast>
+        </General>
+        <Internal>
+            <SocketReceiveBufferSize min="10MB" />
+        </Internal>
+        <SharedMemory>
+            <Enable>true</Enable>
+            <LogLevel>info</LogLevel>
+        </SharedMemory>
+    </Domain>
+</CycloneDDS>

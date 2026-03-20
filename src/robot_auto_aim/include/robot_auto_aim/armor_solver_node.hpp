@@ -101,6 +101,9 @@ private:
     double debug_img_freq_;
     rclcpp::Time last_debug_img_time_;
 
+    int armors_msg_count_;
+    rclcpp::Time last_armors_fps_time_;
+
     // Tracker
     std::unique_ptr<Tracker> tracker_;
 };

@@ -18,6 +18,10 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
     debug_ = declare_parameter("debug", true);
     debug_img_freq_ = declare_parameter("debug_img_freq", 60.0);
     last_debug_img_time_ = this->now();
+    
+    armors_msg_count_ = 0;
+    last_armors_fps_time_ = this->now();
+
     odom_frame_ = declare_parameter("odom_frame", "odom");
     double max_lost_duration = declare_parameter("max_lost_duration", 1.0);
     int min_detect_count = declare_parameter("min_detect_count", 5);
@@ -250,6 +254,14 @@ void ArmorSolverNode::armorsCallback(const robot_interfaces::msg::Armors::Shared
 
     // Sensor update ONLY
     tracker_->track(detector_armors, timestamp);
+
+    armors_msg_count_++;
+    auto now = this->now();
+    if ((now - last_armors_fps_time_).seconds() >= 5.0) {
+        RCLCPP_INFO(this->get_logger(), "Armor Solver - Armors Input FPS: %.2f", armors_msg_count_ / 5.0);
+        armors_msg_count_ = 0;
+        last_armors_fps_time_ = now;
+    }
 }
 
 void ArmorSolverNode::timerCallback() {

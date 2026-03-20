@@ -72,6 +72,7 @@ CallbackReturn ArmorDetectorNode::on_configure(const rclcpp_lifecycle::State & /
     
     frame_count_ = 0;
     last_fps_time_ = this->now();
+    total_detect_duration_ms_ = 0.0;
 
     if (debug_) {
         createDebugPublishers();
@@ -165,13 +166,6 @@ CallbackReturn ArmorDetectorNode::on_shutdown(const rclcpp_lifecycle::State & /*
 void ArmorDetectorNode::imageCallback(sensor_msgs::msg::Image::ConstSharedPtr img_msg)
 {
     frame_count_++;
-    auto now = this->now();
-    if ((now - last_fps_time_).seconds() >= 5.0) {
-        RCLCPP_INFO(this->get_logger(), "Armor Detector input FPS: %.2f", frame_count_ / 5.0);
-        frame_count_ = 0;
-        last_fps_time_ = now;
-    }
-
     Eigen::Matrix3d R_gimbal_camera;
     try {
         rclcpp::Time target_time = img_msg->header.stamp;
@@ -294,17 +288,21 @@ std::unique_ptr<robot_auto_aim::Detector> ArmorDetectorNode::initDetector()
 
 std::vector<robot_auto_aim::Armor> ArmorDetectorNode::detectArmors(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg)
 {
+    auto start_time = this->now();
     auto img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
     auto armors = detector_->detect(img);
+    auto end_time = this->now();
 
-    auto final_time = this->now();
-    auto latency = (final_time - img_msg->header.stamp).seconds() * 1000;
+    double duration_ms = (end_time - start_time).seconds() * 1000.0;
+    total_detect_duration_ms_ += duration_ms;
+
+    auto latency = (end_time - img_msg->header.stamp).seconds() * 1000;
 
     if (debug_) {
-        bool should_publish_img = (final_time - last_debug_img_time_).seconds() >= (1.0 / debug_img_freq_);
-        
+        bool should_publish_img = (end_time - last_debug_img_time_).seconds() >= (1.0 / debug_img_freq_);
+
         if (should_publish_img) {
-            last_debug_img_time_ = final_time;
+            last_debug_img_time_ = end_time;
             binary_img_pub_->publish(*cv_bridge::CvImage(img_msg->header, "mono8", detector_->binary_img).toImageMsg());
         }
 
@@ -331,6 +329,14 @@ std::vector<robot_auto_aim::Armor> ArmorDetectorNode::detectArmors(const sensor_
             
             result_img_pub_->publish(*cv_bridge::CvImage(img_msg->header, "rgb8", img).toImageMsg());
         }
+    }
+
+    if ((end_time - last_fps_time_).seconds() >= 5.0) {
+        RCLCPP_INFO(this->get_logger(), "Armor Detector - Input FPS: %.2f | Avg Process Time: %.2f ms", 
+            frame_count_ / 5.0, total_detect_duration_ms_ / frame_count_);
+        frame_count_ = 0;
+        total_detect_duration_ms_ = 0.0;
+        last_fps_time_ = end_time;
     }
 
     return armors;

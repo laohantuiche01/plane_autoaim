@@ -80,6 +80,7 @@ private:
 
     int frame_count_;
     rclcpp::Time last_fps_time_;
+    double total_detect_duration_ms_;
 
     void createDebugPublishers();
     void destroyDebugPublishers();
