@@ -67,6 +67,12 @@ CallbackReturn ArmorDetectorNode::on_configure(const rclcpp_lifecycle::State & /
     marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("armor_detector/markers", 10);
 
     debug_ = this->declare_parameter("debug", true);
+    debug_img_freq_ = this->declare_parameter("debug_img_freq", 60.0);
+    last_debug_img_time_ = this->now();
+    
+    frame_count_ = 0;
+    last_fps_time_ = this->now();
+
     if (debug_) {
         createDebugPublishers();
     }
@@ -158,6 +164,14 @@ CallbackReturn ArmorDetectorNode::on_shutdown(const rclcpp_lifecycle::State & /*
 
 void ArmorDetectorNode::imageCallback(sensor_msgs::msg::Image::ConstSharedPtr img_msg)
 {
+    frame_count_++;
+    auto now = this->now();
+    if ((now - last_fps_time_).seconds() >= 5.0) {
+        RCLCPP_INFO(this->get_logger(), "Armor Detector input FPS: %.2f", frame_count_ / 5.0);
+        frame_count_ = 0;
+        last_fps_time_ = now;
+    }
+
     Eigen::Matrix3d R_gimbal_camera;
     try {
         rclcpp::Time target_time = img_msg->header.stamp;
@@ -287,7 +301,12 @@ std::vector<robot_auto_aim::Armor> ArmorDetectorNode::detectArmors(const sensor_
     auto latency = (final_time - img_msg->header.stamp).seconds() * 1000;
 
     if (debug_) {
-        binary_img_pub_->publish(*cv_bridge::CvImage(img_msg->header, "mono8", detector_->binary_img).toImageMsg());
+        bool should_publish_img = (final_time - last_debug_img_time_).seconds() >= (1.0 / debug_img_freq_);
+        
+        if (should_publish_img) {
+            last_debug_img_time_ = final_time;
+            binary_img_pub_->publish(*cv_bridge::CvImage(img_msg->header, "mono8", detector_->binary_img).toImageMsg());
+        }
 
         std::sort(detector_->debug_lights.data.begin(), detector_->debug_lights.data.end(),
                   [](const auto & l1, const auto & l2) { return l1.center_x < l2.center_x; });
@@ -297,19 +316,21 @@ std::vector<robot_auto_aim::Armor> ArmorDetectorNode::detectArmors(const sensor_
         lights_data_pub_->publish(detector_->debug_lights);
         armors_data_pub_->publish(detector_->debug_armors);
 
-        if (!armors.empty()) {
-            auto all_num_img = detector_->getAllNumbersImage();
-            number_img_pub_->publish(*cv_bridge::CvImage(img_msg->header, "mono8", all_num_img).toImageMsg());
+        if (should_publish_img) {
+            if (!armors.empty()) {
+                auto all_num_img = detector_->getAllNumbersImage();
+                number_img_pub_->publish(*cv_bridge::CvImage(img_msg->header, "mono8", all_num_img).toImageMsg());
+            }
+
+            detector_->drawResults(img);
+
+            cv::circle(img, cam_center_, 5, cv::Scalar(255, 0, 0), 2);
+            std::stringstream latency_ss;
+            latency_ss << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
+            cv::putText(img, latency_ss.str(), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
+            
+            result_img_pub_->publish(*cv_bridge::CvImage(img_msg->header, "rgb8", img).toImageMsg());
         }
-
-        detector_->drawResults(img);
-
-        cv::circle(img, cam_center_, 5, cv::Scalar(255, 0, 0), 2);
-        std::stringstream latency_ss;
-        latency_ss << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
-        cv::putText(img, latency_ss.str(), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
-        
-        result_img_pub_->publish(*cv_bridge::CvImage(img_msg->header, "rgb8", img).toImageMsg());
     }
 
     return armors;
@@ -322,6 +343,7 @@ rcl_interfaces::msg::SetParametersResult ArmorDetectorNode::onSetParameters(std:
     for (const auto & param : parameters) {
         if (param.get_name() == "binary_thres") detector_->binary_thres = param.as_int();
         else if (param.get_name() == "classifier_threshold") detector_->classifier->threshold = param.as_double();
+        else if (param.get_name() == "debug_img_freq") debug_img_freq_ = param.as_double();
         else if (param.get_name() == "light.min_ratio") detector_->light_params.min_ratio = param.as_double();
         else if (param.get_name() == "light.max_ratio") detector_->light_params.max_ratio = param.as_double();
         else if (param.get_name() == "light.max_angle") detector_->light_params.max_angle = param.as_double();

@@ -75,6 +75,12 @@ private:
     std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::Image>> number_img_pub_;
     std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::Image>> result_img_pub_;
 
+    double debug_img_freq_;
+    rclcpp::Time last_debug_img_time_;
+
+    int frame_count_;
+    rclcpp::Time last_fps_time_;
+
     void createDebugPublishers();
     void destroyDebugPublishers();
 };
