@@ -72,6 +72,10 @@ private:
     double r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_;
     double dist_scale_coeff_, z_scale_coeff_;
     
+    // Convergence
+    int min_update_count_;
+    double max_pos_cov_, max_yaw_cov_;
+    
     // Adaptive Q
     bool adaptive_tracking_;
     double q_alpha_;

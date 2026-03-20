@@ -15,6 +15,7 @@ OutpostTarget::OutpostTarget()
       q_yaw_(0.01), q_v_yaw_(0.1), q_geo_(0.0001),
       r_x_(0.5), r_y_(0.5), r_z_(0.5), r_yaw_(0.05), r_yaw_adaptive_factor_(50.0),
       dist_scale_coeff_(0.1), z_scale_coeff_(5.0),
+      min_update_count_(5), max_pos_cov_(2.0), max_yaw_cov_(1.0),
       adaptive_tracking_(false), q_alpha_(0.1) {
     for (int i = 0; i < 3; ++i) {
         ukfs_[i] = robot_utils::UKF<STATE_DIM>(0.001, 2.0, 0.0);
@@ -213,6 +214,9 @@ void OutpostTarget::updateParams(const TargetParams& params) {
     r_yaw_ = params.r_yaw; r_yaw_adaptive_factor_ = params.r_yaw_adaptive_factor; 
     adaptive_tracking_ = params.adaptive_tracking; q_alpha_ = params.q_alpha; 
     dist_scale_coeff_ = params.dist_scale_coeff; z_scale_coeff_ = params.z_scale_coeff;
+    min_update_count_ = params.min_update_count;
+    max_pos_cov_ = params.max_pos_cov;
+    max_yaw_cov_ = params.max_yaw_cov;
 }
 
 void OutpostTarget::setUKFParams(double alpha, double beta, double kappa) {
@@ -226,7 +230,9 @@ void OutpostTarget::setUKFParams(double alpha, double beta, double kappa) {
 
 bool OutpostTarget::isConverged() const {
     const auto& cov = ukfs_[best_ukf_idx_].getCovariance().diagonal(); 
-    return update_count_ > 5 && cov(0) < 2.0 && cov(1) < 2.0 && cov(2) < 2.0 && cov(3) < 1.0;
+    return update_count_ > min_update_count_ && 
+           cov(0) < max_pos_cov_ && cov(1) < max_pos_cov_ && cov(2) < max_pos_cov_ && 
+           cov(3) < max_yaw_cov_;
 }
 
 bool OutpostTarget::isDiverged() const {

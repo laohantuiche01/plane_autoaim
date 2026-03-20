@@ -12,6 +12,7 @@ RobotTarget::RobotTarget()
       q_yaw_(0.01), q_v_yaw_(0.001), q_geo_(0.0001),
       r_x_(0.5), r_y_(0.5), r_z_(0.5), r_yaw_(0.05), r_yaw_adaptive_factor_(50.0),
       dist_scale_coeff_(0.1), z_scale_coeff_(5.0),
+      min_update_count_(5), max_pos_cov_(3.0), max_yaw_cov_(1.0),
       adaptive_tracking_(false), q_alpha_(0.1) { 
 }
 
@@ -172,9 +173,9 @@ bool RobotTarget::update(const TrackerArmor& armor) {
 bool RobotTarget::isConverged() const {
     const auto& cov = ukf_.getCovariance().diagonal();
     // Position (x:0, y:2, z:4) and Angle (yaw:6)
-    return update_count_ > 5 && 
-           cov(0) < 2.0 && cov(2) < 2.0 && cov(4) < 2.0 && 
-           cov(6) < 1.0;
+    return update_count_ > min_update_count_ && 
+           cov(0) < max_pos_cov_ && cov(2) < max_pos_cov_ && cov(4) < max_pos_cov_ && 
+           cov(6) < max_yaw_cov_;
 }
 
 bool RobotTarget::isDiverged() const {

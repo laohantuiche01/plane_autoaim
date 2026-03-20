@@ -30,6 +30,11 @@ struct TargetParams {
     bool adaptive_tracking;
     double q_alpha;
     double dist_scale_coeff, z_scale_coeff;
+
+    // Convergence Params
+    int min_update_count;
+    double max_pos_cov;
+    double max_yaw_cov;
 };
 
 class TargetBase {

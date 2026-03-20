@@ -97,6 +97,9 @@ private:
     sensor_msgs::msg::CameraInfo::SharedPtr cam_info_;
     cv::Mat camera_matrix_;
     cv::Mat dist_coeffs_;
+    
+    double debug_img_freq_;
+    rclcpp::Time last_debug_img_time_;
 
     // Tracker
     std::unique_ptr<Tracker> tracker_;

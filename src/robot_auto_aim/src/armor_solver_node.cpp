@@ -16,18 +16,20 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
     RCLCPP_INFO(get_logger(), "Configuring ArmorSolverNode...");
 
     debug_ = declare_parameter("debug", true);
+    debug_img_freq_ = declare_parameter("debug_img_freq", 60.0);
+    last_debug_img_time_ = this->now();
     odom_frame_ = declare_parameter("odom_frame", "odom");
     double max_lost_duration = declare_parameter("max_lost_duration", 1.0);
     int min_detect_count = declare_parameter("min_detect_count", 5);
 
     auto declare_target_params = [this](const std::string& prefix, TargetParams& params, bool has_velocity) {
-        params.q_x = declare_parameter(prefix + ".q_x", 0.001);
-        params.q_y = declare_parameter(prefix + ".q_y", 0.001);
-        params.q_z = declare_parameter(prefix + ".q_z", 0.001);
+        params.q_x = declare_parameter(prefix + ".q_x", 0.1);
+        params.q_y = declare_parameter(prefix + ".q_y", 0.1);
+        params.q_z = declare_parameter(prefix + ".q_z", 0.02);
         if (has_velocity) {
-            params.q_vx = declare_parameter(prefix + ".q_vx", 0.1);
-            params.q_vy = declare_parameter(prefix + ".q_vy", 0.1);
-            params.q_vz = declare_parameter(prefix + ".q_vz", 0.1);
+            params.q_vx = declare_parameter(prefix + ".q_vx", 5.0);
+            params.q_vy = declare_parameter(prefix + ".q_vy", 5.0);
+            params.q_vz = declare_parameter(prefix + ".q_vz", 1.0);
         } else {
             params.q_vx = 0.0; params.q_vy = 0.0; params.q_vz = 0.0;
         }
@@ -43,6 +45,9 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
         params.q_alpha = declare_parameter(prefix + ".q_alpha", 0.1);
         params.dist_scale_coeff = declare_parameter(prefix + ".dist_scale_coeff", 0.1);
         params.z_scale_coeff = declare_parameter(prefix + ".z_scale_coeff", 5.0);
+        params.min_update_count = declare_parameter(prefix + ".min_update_count", 5);
+        params.max_pos_cov = declare_parameter(prefix + ".max_pos_cov", 3.0);
+        params.max_yaw_cov = declare_parameter(prefix + ".max_yaw_cov", 1.0);
     };
 
     declare_target_params("robot", robot_params_, true);
@@ -96,6 +101,9 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
                 else if (key == "q_alpha") params.q_alpha = param.as_double();
                 else if (key == "dist_scale_coeff") params.dist_scale_coeff = param.as_double();
                 else if (key == "z_scale_coeff") params.z_scale_coeff = param.as_double();
+                else if (key == "min_update_count") params.min_update_count = param.as_int();
+                else if (key == "max_pos_cov") params.max_pos_cov = param.as_double();
+                else if (key == "max_yaw_cov") params.max_yaw_cov = param.as_double();
                 else return false;
                 return true;
             };
@@ -111,6 +119,7 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
                         destroyDebugPublishers();
                     }
                 }
+                else if (param.get_name() == "debug_img_freq") { debug_img_freq_ = param.as_double(); }
                 else if (param.get_name() == "ukf_alpha") { ukf_alpha_ = param.as_double(); should_reset = true; }
                 else if (param.get_name() == "ukf_beta") { ukf_beta_ = param.as_double(); should_reset = true; }
                 else if (param.get_name() == "ukf_kappa") { ukf_kappa_ = param.as_double(); should_reset = true; }
@@ -599,8 +608,12 @@ void ArmorSolverNode::destroyDebugPublishers() {
 void ArmorSolverNode::imageCallback(const sensor_msgs::msg::Image::SharedPtr img_msg) {
     if (!cam_info_ || !tracker_ || !tracker_->getTarget() || !debug_) return;
 
+    auto now = this->now();
+    if ((now - last_debug_img_time_).seconds() < (1.0 / debug_img_freq_)) return;
+    last_debug_img_time_ = now;
+
     auto target = tracker_->getTarget();
-    if (!target->isConverged() || tracker_->getState() == Tracker::State::LOST) return;
+    if (tracker_->getState() == Tracker::State::LOST) return;
 
     geometry_msgs::msg::TransformStamped transform;
     try {
@@ -695,7 +708,7 @@ void ArmorSolverNode::imageCallback(const sensor_msgs::msg::Image::SharedPtr img
 
     try {
         cv::Mat img = cv_bridge::toCvCopy(img_msg, "rgb8")->image;
-        
+        cv::Scalar color = target->isConverged() ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 255, 255);
         for (int i = 0; i < armor_num; ++i) {
             int base = i * 4;
             std::vector<int> armor_indices = {base, base + 1, base + 2, base + 3};
@@ -703,7 +716,7 @@ void ArmorSolverNode::imageCallback(const sensor_msgs::msg::Image::SharedPtr img
                 int idx1 = armor_indices[j];
                 int idx2 = armor_indices[(j + 1) % 4];
                 if (index_to_pt.count(idx1) && index_to_pt.count(idx2)) {
-                    cv::line(img, index_to_pt[idx1], index_to_pt[idx2], cv::Scalar(0, 255, 0), 2);
+                    cv::line(img, index_to_pt[idx1], index_to_pt[idx2], color, 2);
                 }
             }
         }

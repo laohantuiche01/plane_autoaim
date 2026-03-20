@@ -30,6 +30,9 @@ public:
         q_alpha_ = params.q_alpha;
         dist_scale_coeff_ = params.dist_scale_coeff;
         z_scale_coeff_ = params.z_scale_coeff;
+        min_update_count_ = params.min_update_count;
+        max_pos_cov_ = params.max_pos_cov;
+        max_yaw_cov_ = params.max_yaw_cov;
     }
 
     void setUKFParams(double alpha, double beta, double kappa) override {
@@ -78,6 +81,10 @@ private:
     double q_yaw_, q_v_yaw_, q_geo_;
     double r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_;
     double dist_scale_coeff_, z_scale_coeff_;
+    
+    // Convergence
+    int min_update_count_;
+    double max_pos_cov_, max_yaw_cov_;
     
     // Adaptive Q
     bool adaptive_tracking_;
