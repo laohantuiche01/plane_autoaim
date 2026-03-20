@@ -73,9 +73,9 @@ void OutpostTarget::predict(const rclcpp::Time& time) {
     if (dt <= 0) return;
     
     Eigen::Matrix<double, STATE_DIM, STATE_DIM> Q = Eigen::Matrix<double, STATE_DIM, STATE_DIM>::Zero();
-    Q(0,0) = q_x_; Q(1,1) = q_y_; Q(2,2) = q_z_;
-    Q(3,3) = q_yaw_; Q(4,4) = q_v_yaw_;
-    Q(5,5) = q_geo_; Q(6,6) = q_geo_;
+    Q(0,0) = q_x_ * dt; Q(1,1) = q_y_ * dt; Q(2,2) = q_z_ * dt;
+    Q(3,3) = q_yaw_ * dt; Q(4,4) = q_v_yaw_ * dt;
+    Q(5,5) = q_geo_ * dt; Q(6,6) = q_geo_ * dt;
     
     auto f = [dt](const Eigen::Matrix<double, STATE_DIM, 1>& x) {
         Eigen::Matrix<double, STATE_DIM, 1> x_out = x;

@@ -56,11 +56,11 @@ void RobotTarget::predict(const rclcpp::Time& time) {
     if (dt <= 0) return;
     
     Eigen::Matrix<double, STATE_DIM, STATE_DIM> Q = Eigen::Matrix<double, STATE_DIM, STATE_DIM>::Zero();
-    Q(0,0) = q_x_; Q(2,2) = q_y_; Q(4,4) = q_z_;
-    Q(1,1) = q_vx_; Q(3,3) = q_vy_; Q(5,5) = q_vz_;
-    Q(6,6) = q_yaw_;
-    Q(7,7) = q_v_yaw_;
-    Q(8,8) = Q(9,9) = Q(10,10) = q_geo_;
+    Q(0,0) = q_x_ * dt; Q(2,2) = q_y_ * dt; Q(4,4) = q_z_ * dt;
+    Q(1,1) = q_vx_ * dt; Q(3,3) = q_vy_ * dt; Q(5,5) = q_vz_ * dt;
+    Q(6,6) = q_yaw_ * dt;
+    Q(7,7) = q_v_yaw_ * dt;
+    Q(8,8) = Q(9,9) = Q(10,10) = q_geo_ * dt;
     
     auto f = [dt](const Eigen::Matrix<double, STATE_DIM, 1>& x) {
         Eigen::Matrix<double, STATE_DIM, 1> x_out = x;
