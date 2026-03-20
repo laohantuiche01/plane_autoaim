@@ -4,6 +4,7 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include "rclcpp_components/register_node_macro.hpp"
+#include "lifecycle_msgs/msg/state.hpp"
 
 namespace robot_auto_aim {
 
@@ -14,6 +15,7 @@ ArmorSolverNode::ArmorSolverNode(const rclcpp::NodeOptions& options)
 ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifecycle::State& /*state*/) {
     RCLCPP_INFO(get_logger(), "Configuring ArmorSolverNode...");
 
+    debug_ = declare_parameter("debug", true);
     odom_frame_ = declare_parameter("odom_frame", "odom");
     double max_lost_duration = declare_parameter("max_lost_duration", 1.0);
     int min_detect_count = declare_parameter("min_detect_count", 5);
@@ -101,6 +103,14 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
             for (const auto& param : parameters) {
                 if (update_param(param, "robot", robot_params_, true)) should_reset = true;
                 else if (update_param(param, "outpost", outpost_params_, false)) should_reset = true;
+                else if (param.get_name() == "debug") {
+                    debug_ = param.as_bool();
+                    if (debug_ && this->get_current_state().id() == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+                        createDebugPublishers();
+                    } else if (!debug_) {
+                        destroyDebugPublishers();
+                    }
+                }
                 else if (param.get_name() == "ukf_alpha") { ukf_alpha_ = param.as_double(); should_reset = true; }
                 else if (param.get_name() == "ukf_beta") { ukf_beta_ = param.as_double(); should_reset = true; }
                 else if (param.get_name() == "ukf_kappa") { ukf_kappa_ = param.as_double(); should_reset = true; }
@@ -150,6 +160,10 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_activate(const rclcpp_lifecy
     marker_pub_->on_activate();
     trajectory_pub_->on_activate();
 
+    if (debug_) {
+        createDebugPublishers();
+    }
+
     return CallbackReturn::SUCCESS;
 }
 
@@ -162,11 +176,20 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_deactivate(const rclcpp_life
     marker_pub_->on_deactivate();
     trajectory_pub_->on_deactivate();
 
+    if (debug_) {
+        destroyDebugPublishers();
+    }
+
     return CallbackReturn::SUCCESS;
 }
 
 ArmorSolverNode::CallbackReturn ArmorSolverNode::on_cleanup(const rclcpp_lifecycle::State& /*state*/) {
     RCLCPP_INFO(get_logger(), "Cleaning up ArmorSolverNode...");
+
+    if (debug_) {
+        destroyDebugPublishers();
+    }
+    
     return CallbackReturn::SUCCESS;
 }
 
@@ -544,6 +567,151 @@ void ArmorSolverNode::publishMarkers(const std::shared_ptr<TargetBase>& target,
 
 void ArmorSolverNode::updateTrackerParams() {
     tracker_->updateParams(robot_params_, outpost_params_);
+}
+
+void ArmorSolverNode::createDebugPublishers() {
+    debug_img_pub_ = this->create_publisher<sensor_msgs::msg::Image>("armor_solver/debug_image", rclcpp::SensorDataQoS());
+    debug_img_pub_->on_activate();
+
+    cam_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
+        "/image_raw_info", rclcpp::SensorDataQoS(),
+        [this](sensor_msgs::msg::CameraInfo::SharedPtr camera_info) {
+            cam_info_ = camera_info;
+            camera_matrix_ = cv::Mat(3, 3, CV_64F, camera_info->k.data()).clone();
+            dist_coeffs_ = cv::Mat(1, 5, CV_64F, camera_info->d.data()).clone();
+            cam_info_sub_.reset();
+        });
+
+    img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
+        "image_raw", rclcpp::SensorDataQoS(),
+        std::bind(&ArmorSolverNode::imageCallback, this, std::placeholders::_1));
+}
+
+void ArmorSolverNode::destroyDebugPublishers() {
+    if (debug_img_pub_) {
+        debug_img_pub_->on_deactivate();
+        debug_img_pub_.reset();
+    }
+    cam_info_sub_.reset();
+    img_sub_.reset();
+}
+
+void ArmorSolverNode::imageCallback(const sensor_msgs::msg::Image::SharedPtr img_msg) {
+    if (!cam_info_ || !tracker_ || !tracker_->getTarget() || !debug_) return;
+
+    auto target = tracker_->getTarget();
+    if (!target->isConverged() || tracker_->getState() == Tracker::State::LOST) return;
+
+    geometry_msgs::msg::TransformStamped transform;
+    try {
+        transform = tf_buffer_->lookupTransform(
+            img_msg->header.frame_id, odom_frame_, img_msg->header.stamp,
+            rclcpp::Duration::from_seconds(0.01));
+    } catch (const tf2::TransformException &ex) {
+        return;
+    }
+
+    auto state = target->getPredictedState(img_msg->header.stamp);
+    int armor_num = target->getArmorNum();
+    
+    double w = (target->getType() == ArmorType::SMALL) ? SMALL_ARMOR_WIDTH : LARGE_ARMOR_WIDTH;
+    double h = (target->getType() == ArmorType::SMALL) ? SMALL_ARMOR_HEIGHT : LARGE_ARMOR_HEIGHT;
+
+    std::vector<cv::Point3f> object_points;
+    auto add_armor_corners = [&](double ax, double ay, double az, double angle, double pitch) {
+        // Rotation around vertical axis (yaw/angle) then around horizontal axis (pitch)
+        // tx, ty is the direction along the width of the armor
+        double tx = -std::sin(angle);
+        double ty = std::cos(angle);
+        
+        // n is the normal of the armor (in horizontal plane)
+        double nx = std::cos(angle);
+        double ny = std::sin(angle);
+
+        // Corner offsets considering pitch (tilt)
+        // The vertical direction of the armor is tilted by 'pitch'
+        // New vertical direction: ( -nx*sin(pitch), -ny*sin(pitch), cos(pitch) )
+        double vx = -nx * std::sin(pitch);
+        double vy = -ny * std::sin(pitch);
+        double vz = std::cos(pitch);
+
+        object_points.emplace_back(ax + (w/2)*tx + (h/2)*vx, ay + (w/2)*ty + (h/2)*vy, az + (h/2)*vz);
+        object_points.emplace_back(ax - (w/2)*tx + (h/2)*vx, ay - (w/2)*ty + (h/2)*vy, az + (h/2)*vz);
+        object_points.emplace_back(ax - (w/2)*tx - (h/2)*vx, ay - (w/2)*ty - (h/2)*vy, az - (h/2)*vz);
+        object_points.emplace_back(ax + (w/2)*tx - (h/2)*vx, ay + (w/2)*ty - (h/2)*vy, az - (h/2)*vz);
+    };
+
+    double yaw, r;
+    if (armor_num == 3) {
+        yaw = state(3); r = state(5);
+        for (int i = 0; i < 3; ++i) {
+            double angle = robot_utils::normalize_angle(yaw + i * 2.0 * M_PI / 3.0);
+            double ax = state(0) - r * std::cos(angle);
+            double ay = state(1) - r * std::sin(angle);
+            double az = state(2) - i * state(6);
+            add_armor_corners(ax, ay, az, angle, FIFTEEN_DEGREE_RAD);
+        }
+    } else {
+        yaw = state(6); r = state(8);
+        for (int i = 0; i < armor_num; ++i) {
+            double angle = robot_utils::normalize_angle(yaw + i * M_PI / 2.0);
+            double current_r = (i % 2 == 0) ? r : r + state(9);
+            double current_z = (i % 2 == 0) ? state(4) : state(4) + state(10);
+            double ax = state(0) - current_r * std::cos(angle);
+            double ay = state(2) - current_r * std::sin(angle);
+            double az = current_z;
+            add_armor_corners(ax, ay, az, angle, -FIFTEEN_DEGREE_RAD);
+        }
+    }
+
+    // Transform points to camera frame
+    std::vector<cv::Point3f> cam_points;
+    std::vector<int> valid_indices;
+    for (size_t i = 0; i < object_points.size(); ++i) {
+        const auto& pt = object_points[i];
+        geometry_msgs::msg::PointStamped ps_in, ps_out;
+        ps_in.header.frame_id = odom_frame_;
+        ps_in.header.stamp = img_msg->header.stamp;
+        ps_in.point.x = pt.x; ps_in.point.y = pt.y; ps_in.point.z = pt.z;
+        tf2::doTransform(ps_in, ps_out, transform);
+        if (ps_out.point.z > 0) {
+            cam_points.emplace_back(ps_out.point.x, ps_out.point.y, ps_out.point.z);
+            valid_indices.push_back(i);
+        }
+    }
+
+    if (cam_points.empty()) return;
+
+    std::vector<cv::Point2f> image_points;
+    cv::Mat rvec = cv::Mat::zeros(3, 1, CV_64F);
+    cv::Mat tvec = cv::Mat::zeros(3, 1, CV_64F);
+    cv::projectPoints(cam_points, rvec, tvec, camera_matrix_, dist_coeffs_, image_points);
+
+    // Map projected points back to their original indices for drawing lines
+    std::map<int, cv::Point2f> index_to_pt;
+    for (size_t i = 0; i < valid_indices.size(); ++i) {
+        index_to_pt[valid_indices[i]] = image_points[i];
+    }
+
+    try {
+        cv::Mat img = cv_bridge::toCvCopy(img_msg, "rgb8")->image;
+        
+        for (int i = 0; i < armor_num; ++i) {
+            int base = i * 4;
+            std::vector<int> armor_indices = {base, base + 1, base + 2, base + 3};
+            for (int j = 0; j < 4; ++j) {
+                int idx1 = armor_indices[j];
+                int idx2 = armor_indices[(j + 1) % 4];
+                if (index_to_pt.count(idx1) && index_to_pt.count(idx2)) {
+                    cv::line(img, index_to_pt[idx1], index_to_pt[idx2], cv::Scalar(0, 255, 0), 2);
+                }
+            }
+        }
+        
+        debug_img_pub_->publish(*cv_bridge::CvImage(img_msg->header, "rgb8", img).toImageMsg());
+    } catch (cv_bridge::Exception& e) {
+        RCLCPP_ERROR(get_logger(), "cv_bridge exception: %s", e.what());
+    }
 }
 
 } // namespace robot_auto_aim

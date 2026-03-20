@@ -11,6 +11,10 @@
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 #include "visualization_msgs/msg/marker_array.hpp"
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <cv_bridge/cv_bridge.h>
+#include <opencv2/opencv.hpp>
 
 #include "robot_auto_aim/tracker.hpp"
 #include "robot_interfaces/msg/armors.hpp"
@@ -38,6 +42,10 @@ private:
     void armorsCallback(const robot_interfaces::msg::Armors::SharedPtr armors_msg);
     
     void timerCallback();
+    
+    void imageCallback(const sensor_msgs::msg::Image::SharedPtr img_msg);
+    void createDebugPublishers();
+    void destroyDebugPublishers();
     
     void publishMarkers(const std::shared_ptr<TargetBase>& target, 
                         const std_msgs::msg::Header& header,
@@ -80,6 +88,15 @@ private:
 
     // Params Callback
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_handle_;
+
+    // Debug & Visuals
+    bool debug_;
+    std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::Image>> debug_img_pub_;
+    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr img_sub_;
+    sensor_msgs::msg::CameraInfo::SharedPtr cam_info_;
+    cv::Mat camera_matrix_;
+    cv::Mat dist_coeffs_;
 
     // Tracker
     std::unique_ptr<Tracker> tracker_;
