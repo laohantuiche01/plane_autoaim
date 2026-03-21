@@ -2,7 +2,7 @@ import os
 from datetime import datetime
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, SetEnvironmentVariable, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, SetEnvironmentVariable, OpaqueFunction, ExecuteProcess
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import ComposableNodeContainer, Node
 from launch_ros.descriptions import ComposableNode
@@ -17,6 +17,14 @@ def launch_setup(context, *args, **kwargs):
     
     bringup_dir = get_package_share_directory('robot_bringup')
     params_path = os.path.join(bringup_dir, 'config', robot_type, 'params.yaml')
+
+    # ---------------------------------------------------------
+    # Start Iceoryx RouDi Daemon (if not running)
+    # ---------------------------------------------------------
+    start_roudi = ExecuteProcess(
+        cmd=[os.path.join(bringup_dir, 'launch', 'start_roudi.sh')],
+        output='screen'
+    )
 
     # Setup log directory with timestamp if file logging is enabled
     ros_log_dir = os.environ.get('ROS_LOG_DIR', os.path.expanduser('~/.ros/log'))
@@ -36,7 +44,8 @@ def launch_setup(context, *args, **kwargs):
         name='vision_container',
         namespace='',
         package='rclcpp_components',
-        executable='component_container',
+        executable='component_container_isolated',
+        prefix=['nice -n -20 taskset -c 0,1,2,3'], # Highest priority and CPU binding
         composable_node_descriptions=[
             ComposableNode(
                 package='hik_camera_driver',
@@ -95,7 +104,7 @@ def launch_setup(context, *args, **kwargs):
         respawn_delay=2.0,
     )
 
-    return [vision_container, manager_node, communication_node]
+    return [start_roudi, vision_container, manager_node, communication_node]
 
 def generate_launch_description():
     # Environment Variables for detailed logging
