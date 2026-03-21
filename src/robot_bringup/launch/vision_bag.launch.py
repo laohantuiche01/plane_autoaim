@@ -57,7 +57,7 @@ def launch_setup(context, *args, **kwargs):
     # 3. 运行 Rosbag 播放进程 (绑核 4,5)
     # 使用最高优先级，确保 250Hz 的发包不会因为系统调度而抖动
     play_bag = ExecuteProcess(
-        cmd=['nice', '-n', '-20', 'taskset', '-c', '4,5', 'ros2', 'bag', 'play', bag_path],
+        cmd=['nice', '-n', '-20', 'taskset', '-c', '4,5', 'ros2', 'bag', 'play', '-l', bag_path],
         output='screen'
     )
 
