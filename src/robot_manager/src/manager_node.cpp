@@ -25,7 +25,24 @@ ManagerNode::ManagerNode(const rclcpp::NodeOptions& options)
     solver_get_state_client_ = this->create_client<lifecycle_msgs::srv::GetState>(
         solver_name_ + "/get_state");
 
-    RCLCPP_INFO(this->get_logger(), "Robot Manager Node started.");
+    RCLCPP_INFO(this->get_logger(), "Robot Manager Node started. Waiting to initialize armor nodes...");
+
+    // Auto-start armor nodes asynchronously
+    std::thread([this]() {
+        // Wait for a short time to let the containers and other nodes spawn
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        RCLCPP_INFO(this->get_logger(), "Auto-activating armor nodes...");
+        
+        // Configure first
+        updateNodeState(detector_name_, lifecycle_msgs::msg::Transition::TRANSITION_CONFIGURE);
+        updateNodeState(solver_name_, lifecycle_msgs::msg::Transition::TRANSITION_CONFIGURE);
+        
+        // Then activate
+        updateNodeState(detector_name_, lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
+        updateNodeState(solver_name_, lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
+        
+        RCLCPP_INFO(this->get_logger(), "Armor nodes auto-activation complete.");
+    }).detach();
 }
 
 void ManagerNode::modeCallback(const robot_interfaces::msg::Mode::SharedPtr msg) {
@@ -75,18 +92,18 @@ void ManagerNode::updateNodeState(const std::string& node_name, uint8_t transiti
         RCLCPP_WARN(this->get_logger(), "Service %s not available. Waiting...", client->get_service_name());
     }
 
-    // Check current state to see if transition is valid
     uint8_t current_state = getNodeState(node_name);
     
     if (transition == lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE) {
         if (current_state == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) return;
         if (current_state == lifecycle_msgs::msg::State::PRIMARY_STATE_UNCONFIGURED) {
-            // Need to configure first
             updateNodeState(node_name, lifecycle_msgs::msg::Transition::TRANSITION_CONFIGURE);
-            current_state = lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE;
+            current_state = getNodeState(node_name);
         }
     } else if (transition == lifecycle_msgs::msg::Transition::TRANSITION_DEACTIVATE) {
         if (current_state != lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) return;
+    } else if (transition == lifecycle_msgs::msg::Transition::TRANSITION_CONFIGURE) {
+        if (current_state != lifecycle_msgs::msg::State::PRIMARY_STATE_UNCONFIGURED) return;
     }
 
     auto request = std::make_shared<lifecycle_msgs::srv::ChangeState::Request>();
