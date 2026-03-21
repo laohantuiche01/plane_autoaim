@@ -43,7 +43,7 @@ private:
     
     void timerCallback();
     
-    void imageCallback(const sensor_msgs::msg::Image::SharedPtr img_msg);
+    void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg);
     void createDebugPublishers();
     void destroyDebugPublishers();
     

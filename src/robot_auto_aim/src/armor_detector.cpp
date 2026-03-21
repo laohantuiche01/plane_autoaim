@@ -72,7 +72,7 @@ std::vector<Armor> Detector::detect(const cv::Mat &input) noexcept {
 }
 
 cv::Mat Detector::preprocessImage(const cv::Mat &rgb_img) noexcept {
-  cv::cvtColor(rgb_img, gray_img_, cv::COLOR_RGB2GRAY);
+  cv::cvtColor(rgb_img, gray_img_, cv::COLOR_BGR2GRAY);
 
   cv::Mat binary_img;
   cv::threshold(gray_img_, binary_img, binary_thres, 255, cv::THRESH_BINARY);
@@ -98,8 +98,8 @@ std::vector<Light> Detector::findLights(const cv::Mat &rgb_img,
     if (isLight(light)) {
       int sum_r = 0, sum_b = 0;
       for (const auto &point : contour) {
-        sum_r += rgb_img.at<cv::Vec3b>(point.y, point.x)[0];
-        sum_b += rgb_img.at<cv::Vec3b>(point.y, point.x)[2];
+        sum_b += rgb_img.at<cv::Vec3b>(point.y, point.x)[0];
+        sum_r += rgb_img.at<cv::Vec3b>(point.y, point.x)[2];
       }
       if (std::abs(sum_r - sum_b) / static_cast<int>(contour.size()) >
           light_params.color_diff_thresh) {

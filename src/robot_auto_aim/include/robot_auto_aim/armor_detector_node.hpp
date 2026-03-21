@@ -37,7 +37,7 @@ protected:
     CallbackReturn on_shutdown(const rclcpp_lifecycle::State & state) override;
 
 private:
-    void imageCallback(sensor_msgs::msg::Image::ConstSharedPtr img_msg);
+    void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg);
 
     std::unique_ptr<robot_auto_aim::Detector> initDetector();
     std::vector<robot_auto_aim::Armor> detectArmors(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg);

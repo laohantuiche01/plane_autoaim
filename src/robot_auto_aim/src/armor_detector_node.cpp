@@ -163,8 +163,12 @@ CallbackReturn ArmorDetectorNode::on_shutdown(const rclcpp_lifecycle::State & /*
     return CallbackReturn::SUCCESS;
 }
 
-void ArmorDetectorNode::imageCallback(sensor_msgs::msg::Image::ConstSharedPtr img_msg)
+void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg)
 {
+    // Log to verify zero-copy intra-process
+    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 5000, 
+                         "Armor Detector received image ptr: %p", static_cast<const void*>(img_msg.get()));
+
     frame_count_++;
     Eigen::Matrix3d R_gimbal_camera;
     try {
@@ -289,7 +293,9 @@ std::unique_ptr<robot_auto_aim::Detector> ArmorDetectorNode::initDetector()
 std::vector<robot_auto_aim::Armor> ArmorDetectorNode::detectArmors(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg)
 {
     auto start_time = this->now();
-    auto img = cv_bridge::toCvShare(img_msg, "rgb8")->image;
+    
+    auto img = cv_bridge::toCvShare(img_msg, "bgr8")->image;
+
     auto armors = detector_->detect(img);
     auto end_time = this->now();
 
@@ -327,7 +333,7 @@ std::vector<robot_auto_aim::Armor> ArmorDetectorNode::detectArmors(const sensor_
             latency_ss << "Latency: " << std::fixed << std::setprecision(2) << latency << "ms";
             cv::putText(img, latency_ss.str(), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
             
-            result_img_pub_->publish(*cv_bridge::CvImage(img_msg->header, "rgb8", img).toImageMsg());
+            result_img_pub_->publish(*cv_bridge::CvImage(img_msg->header, "bgr8", img).toImageMsg());
         }
     }
 

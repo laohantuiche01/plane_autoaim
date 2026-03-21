@@ -617,12 +617,16 @@ void ArmorSolverNode::destroyDebugPublishers() {
     img_sub_.reset();
 }
 
-void ArmorSolverNode::imageCallback(const sensor_msgs::msg::Image::SharedPtr img_msg) {
+void ArmorSolverNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg) {
     if (!cam_info_ || !tracker_ || !tracker_->getTarget() || !debug_) return;
 
     auto now = this->now();
     if ((now - last_debug_img_time_).seconds() < (1.0 / debug_img_freq_)) return;
     last_debug_img_time_ = now;
+
+    // Log to verify zero-copy intra-process
+    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 5000, 
+                         "Armor Solver received image ptr: %p", static_cast<const void*>(img_msg.get()));
 
     auto target = tracker_->getTarget();
     if (tracker_->getState() == Tracker::State::LOST) return;
@@ -719,7 +723,8 @@ void ArmorSolverNode::imageCallback(const sensor_msgs::msg::Image::SharedPtr img
     }
 
     try {
-        cv::Mat img = cv_bridge::toCvCopy(img_msg, "rgb8")->image;
+        cv::Mat img = cv_bridge::toCvCopy(img_msg, "bgr8")->image;
+        
         cv::Scalar color = target->isConverged() ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 255, 255);
         for (int i = 0; i < armor_num; ++i) {
             int base = i * 4;
@@ -733,7 +738,7 @@ void ArmorSolverNode::imageCallback(const sensor_msgs::msg::Image::SharedPtr img
             }
         }
         
-        debug_img_pub_->publish(*cv_bridge::CvImage(img_msg->header, "rgb8", img).toImageMsg());
+        debug_img_pub_->publish(*cv_bridge::CvImage(img_msg->header, "bgr8", img).toImageMsg());
     } catch (cv_bridge::Exception& e) {
         RCLCPP_ERROR(get_logger(), "cv_bridge exception: %s", e.what());
     }

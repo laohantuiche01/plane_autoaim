@@ -160,19 +160,22 @@ void HikCameraDriver::cameraCallback() {
         exit(errorCode);
     }
 
-    cv::Mat bgrImage;
     cv::Mat bayerImage(frameOut.stFrameInfo.nHeight, frameOut.stFrameInfo.nWidth, CV_8UC1, frameOut.pBufAddr);
-    cv::cvtColor(bayerImage, bgrImage, cv::COLOR_BayerRG2RGB);
-    image->data = std::vector<unsigned char>(bgrImage.data, bgrImage.data +
+    image->data = std::vector<unsigned char>(bayerImage.data, bayerImage.data +
                                                             frameOut.stFrameInfo.nWidth *
-                                                            frameOut.stFrameInfo.nHeight * 3);
+                                                            frameOut.stFrameInfo.nHeight);
 
     image->height = frameOut.stFrameInfo.nHeight;
     image->width = frameOut.stFrameInfo.nWidth;
-    image->step = frameOut.stFrameInfo.nWidth * 3;
-    image->encoding = "bgr8";
+    image->step = frameOut.stFrameInfo.nWidth;
+    image->encoding = "bayer_rggb8";
     image->header.stamp = t2 - rclcpp::Duration::from_seconds((t2 - t1).seconds() * delay_ratio_);
     image->header.frame_id = "camera_optical_frame";
+
+    // Log to verify zero-copy intra-process
+    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 5000, 
+                         "HikCameraDriver publishing image ptr: %p", static_cast<const void*>(image.get()));
+
     imagePublisher->publish(std::move(image));
     errorCode = MV_CC_FreeImageBuffer(handle, &frameOut);
     if (errorCode != MV_OK) {
