@@ -8,15 +8,15 @@ hik_camera:
     use_sensor_data_qos: true
     exposure_time: 2500.0
     gain: 10.0
-    frame_rate: 120.0
+    frame_rate: 150.0
     delay_ratio: 0.0
     width: 1440
     height: 1080
     offset_x: 0
     offset_y: 0
     bit_depth: "Bits_8"
-    k: [1800.6934143042636, 0.0, 706.3079996913679, 0.0, 1798.7788211368727, 582.3820392862021, 0.0, 0.0, 1.0]
-    d: [-0.08369000662881113, 0.15293784675197394, -0.0001574420968165169, 9.731791440156544e-05, 0.0]
+    k: [1804.24343, 0.0, 698.33816, 0.0, 1801.62514, 576.52832, 0.0, 0.0, 1.0]
+    d: [-0.080533, 0.135494, -0.000354, 0.000057, 0.000000]
 
 # Armor Detector
 armor_detector:
@@ -92,14 +92,14 @@ armor_solver:
       q_vz: 10.0
       q_x: 1.0
       q_y: 1.0
-      q_yaw: 0.1
+      q_yaw: 1.0
       q_z: 0.1
-      r_x: 0.5
-      r_y: 0.5
-      r_yaw: 0.05
+      r_x: 5.0
+      r_y: 5.0
+      r_yaw: 0.5
       r_yaw_adaptive_factor: 50.0
       r_z: 0.5
-      z_scale_coeff: 1.1
+      z_scale_coeff: 100.0
     trajectory:
       aim_delay_offset: 0.0
       dt: 0.05
