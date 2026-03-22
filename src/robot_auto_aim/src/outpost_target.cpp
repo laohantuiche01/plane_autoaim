@@ -10,8 +10,7 @@ namespace robot_auto_aim {
     OutpostTarget::OutpostTarget()
         : best_ukf_idx_(0), confirmation_state_(ConfirmationState::CONFIRMING),
           armor_num_(3), priority_(0), last_time_(0), update_count_(0),
-          q_x_(0.001), q_y_(0.001), q_z_(0.001),
-          q_yaw_(0.01), q_v_yaw_(0.1), q_geo_(0.0001),
+          sigma_pos_(0.1), sigma_yaw_(0.3), q_geo_(0.0001),
           r_x_(0.5), r_y_(0.5), r_z_(0.5), r_yaw_(0.05), r_yaw_adaptive_factor_(50.0),
           dist_scale_coeff_(0.1), z_scale_coeff_(5.0),
           min_update_count_(5), max_pos_cov_(2.0), max_yaw_cov_(1.0),
@@ -58,14 +57,18 @@ namespace robot_auto_aim {
             last_armor_ids_[k] = k;
         }
 
+        // Initialize Q_adaptive_ with baseline values (nominal dt=0.01 for 100Hz)
         Q_adaptive_ = Eigen::Matrix<double, STATE_DIM, STATE_DIM>::Zero();
-        Q_adaptive_(0, 0) = q_x_;
-        Q_adaptive_(1, 1) = q_y_;
-        Q_adaptive_(2, 2) = q_z_;
-        Q_adaptive_(3, 3) = q_yaw_;
-        Q_adaptive_(4, 4) = q_v_yaw_;
-        Q_adaptive_(5, 5) = q_geo_;
-        Q_adaptive_(6, 6) = q_geo_; // q_geo for r and h
+        double sp2 = sigma_pos_ * sigma_pos_;
+        double sy2 = sigma_yaw_ * sigma_yaw_;
+        constexpr double nom_dt = 0.01;
+        Q_adaptive_(0, 0) = sp2 * nom_dt;  // cx
+        Q_adaptive_(1, 1) = sp2 * nom_dt;  // cy
+        Q_adaptive_(2, 2) = sp2 * nom_dt;  // cz
+        Q_adaptive_(3, 3) = sy2 * nom_dt;  // yaw
+        Q_adaptive_(4, 4) = sy2 * nom_dt;  // v_yaw
+        Q_adaptive_(5, 5) = q_geo_ * nom_dt;  // r
+        Q_adaptive_(6, 6) = q_geo_ * nom_dt;  // h
 
         last_time_ = armor.timestamp;
         update_count_ = 1;
@@ -75,14 +78,22 @@ namespace robot_auto_aim {
         double dt = (time - last_time_).seconds();
         if (dt <= 0) return;
 
+        double sp2 = sigma_pos_ * sigma_pos_;
+        double sy2 = sigma_yaw_ * sigma_yaw_;
+        double dt2 = dt * dt;
+        double dt3 = dt2 * dt;
+
         Eigen::Matrix<double, STATE_DIM, STATE_DIM> Q = Eigen::Matrix<double, STATE_DIM, STATE_DIM>::Zero();
-        Q(0, 0) = q_x_ * dt;
-        Q(1, 1) = q_y_ * dt;
-        Q(2, 2) = q_z_ * dt;
-        Q(3, 3) = q_yaw_ * dt;
-        Q(4, 4) = q_v_yaw_ * dt;
-        Q(5, 5) = q_geo_ * dt;
-        Q(6, 6) = q_geo_ * dt;
+        // Position: random walk (no velocity states)
+        Q(0, 0) = sp2 * dt;  // cx
+        Q(1, 1) = sp2 * dt;  // cy
+        Q(2, 2) = sp2 * dt;  // cz
+        // yaw-v_yaw pair: CWNA (indices 3, 4)
+        Q(3, 3) = sy2 * dt3 / 3.0;  Q(3, 4) = sy2 * dt2 / 2.0;
+        Q(4, 3) = sy2 * dt2 / 2.0;  Q(4, 4) = sy2 * dt;
+        // Geometric parameters: random walk
+        Q(5, 5) = q_geo_ * dt;  // r
+        Q(6, 6) = q_geo_ * dt;  // h
 
         auto f = [dt](const Eigen::Matrix<double, STATE_DIM, 1> &x) {
             Eigen::Matrix<double, STATE_DIM, 1> x_out = x;
@@ -216,11 +227,8 @@ namespace robot_auto_aim {
     }
 
     void OutpostTarget::updateParams(const TargetParams &params) {
-        q_x_ = params.q_x;
-        q_y_ = params.q_y;
-        q_z_ = params.q_z;
-        q_yaw_ = params.q_yaw;
-        q_v_yaw_ = params.q_v_yaw;
+        sigma_pos_ = params.sigma_pos;
+        sigma_yaw_ = params.sigma_yaw;
         q_geo_ = params.q_geo;
         r_x_ = params.r_x;
         r_y_ = params.r_y;

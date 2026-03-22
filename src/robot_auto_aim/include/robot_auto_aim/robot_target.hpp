@@ -20,9 +20,9 @@ public:
     bool update(const TrackerArmor& armor) override;
 
     void updateParams(const TargetParams& params) override {
-        q_x_ = params.q_x; q_y_ = params.q_y; q_z_ = params.q_z;
-        q_vx_ = params.q_vx; q_vy_ = params.q_vy; q_vz_ = params.q_vz;
-        q_yaw_ = params.q_yaw; q_v_yaw_ = params.q_v_yaw; q_geo_ = params.q_geo;
+        sigma_pos_ = params.sigma_pos;
+        sigma_yaw_ = params.sigma_yaw;
+        q_geo_ = params.q_geo;
         r_x_ = params.r_x; r_y_ = params.r_y; r_z_ = params.r_z;
         r_yaw_ = params.r_yaw;
         r_yaw_adaptive_factor_ = params.r_yaw_adaptive_factor;
@@ -87,13 +87,13 @@ private:
     double priority_;
     
     rclcpp::Time last_time_;
-    int last_armor_id_;
+    int last_armor_ids_[2];  // Per-UKF armor ID tracking
     int update_count_;
 
-    // Params
-    double q_x_, q_y_, q_z_;
-    double q_vx_, q_vy_, q_vz_;
-    double q_yaw_, q_v_yaw_, q_geo_;
+    // CWNA process noise parameters
+    double sigma_pos_;   // Linear acceleration std dev (m/s²)
+    double sigma_yaw_;   // Angular acceleration std dev (rad/s²)
+    double q_geo_;       // Geometric parameter random walk noise
     double r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_;
     double dist_scale_coeff_, z_scale_coeff_;
     

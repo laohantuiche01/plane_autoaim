@@ -23,15 +23,26 @@ struct TrackerArmor {
 };
 
 struct TargetParams {
-    double q_x, q_y, q_z;
-    double q_vx, q_vy, q_vz;
-    double q_yaw, q_v_yaw, q_geo;
+    // Process noise - CWNA model (Continuous White Noise Acceleration)
+    // RobotTarget: acceleration std dev (m/s²), generates cross-coupled Q for pos-vel pairs
+    // OutpostTarget: position drift std dev for random walk (no velocity states for position)
+    double sigma_pos;
+    // Angular acceleration std dev (rad/s²), CWNA for yaw-omega pair
+    double sigma_yaw;
+    // Geometric parameter noise (r, l, h), simple random walk
+    double q_geo;
+
+    // Measurement noise
     double r_x, r_y, r_z, r_yaw, r_yaw_adaptive_factor;
+
+    // Adaptive Q (Sage-Husa)
     bool adaptive_tracking;
     double q_alpha;
+
+    // Distance-dependent R scaling
     double dist_scale_coeff, z_scale_coeff;
 
-    // Convergence Params
+    // Convergence
     int min_update_count;
     double max_pos_cov;
     double max_yaw_cov;

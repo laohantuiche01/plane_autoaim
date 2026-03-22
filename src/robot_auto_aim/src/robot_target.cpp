@@ -5,10 +5,8 @@
 namespace robot_auto_aim {
     RobotTarget::RobotTarget()
         : best_ukf_idx_(0), confirmation_state_(ConfirmationState::CONFIRMED), armor_num_(4), priority_(0),
-          last_time_(0), last_armor_id_(0),
-          update_count_(0), q_x_(0.001), q_y_(0.001), q_z_(0.001),
-          q_vx_(0.1), q_vy_(0.01), q_vz_(0.1),
-          q_yaw_(0.01), q_v_yaw_(0.001), q_geo_(0.0001),
+          last_time_(0), last_armor_ids_{0, 0},
+          update_count_(0), sigma_pos_(20.0), sigma_yaw_(2.0), q_geo_(0.0001),
           r_x_(0.5), r_y_(0.5), r_z_(0.5), r_yaw_(0.05), r_yaw_adaptive_factor_(50.0),
           dist_scale_coeff_(0.1), z_scale_coeff_(5.0),
           min_update_count_(5), max_pos_cov_(3.0), max_yaw_cov_(1.0),
@@ -26,7 +24,8 @@ namespace robot_auto_aim {
         last_time_ = armor.timestamp;
         update_count_ = 1;
         armor_switch_count_ = 0;
-        last_armor_id_ = 0;
+        last_armor_ids_[0] = 0;
+        last_armor_ids_[1] = 0;
 
         Eigen::Matrix<double, STATE_DIM, STATE_DIM> P0 = Eigen::Matrix<double, STATE_DIM, STATE_DIM>::Identity();
         P0.block<6, 6>(0, 0) *= 0.1;
@@ -76,31 +75,48 @@ namespace robot_auto_aim {
             ukfs_[0].init(x0, P0);
         }
 
+        // Initialize Q_adaptive_ with CWNA baseline (nominal dt=0.01 for 100Hz)
         Q_adaptive_ = Eigen::Matrix<double, STATE_DIM, STATE_DIM>::Zero();
-        Q_adaptive_(0, 0) = q_x_;
-        Q_adaptive_(2, 2) = q_y_;
-        Q_adaptive_(4, 4) = q_z_;
-        Q_adaptive_(1, 1) = q_vx_;
-        Q_adaptive_(3, 3) = q_vy_;
-        Q_adaptive_(5, 5) = q_vz_;
-        Q_adaptive_(6, 6) = q_yaw_;
-        Q_adaptive_(7, 7) = q_v_yaw_;
-        Q_adaptive_(8, 8) = Q_adaptive_(9, 9) = Q_adaptive_(10, 10) = q_geo_;
+        double sp2 = sigma_pos_ * sigma_pos_;
+        double sy2 = sigma_yaw_ * sigma_yaw_;
+        constexpr double nom_dt = 0.01;
+        // Position-velocity diagonal (simplified, no cross-terms for adaptive baseline)
+        Q_adaptive_(0, 0) = sp2 * nom_dt;  // cx
+        Q_adaptive_(1, 1) = sp2 * nom_dt;  // vx
+        Q_adaptive_(2, 2) = sp2 * nom_dt;  // cy
+        Q_adaptive_(3, 3) = sp2 * nom_dt;  // vy
+        Q_adaptive_(4, 4) = sp2 * nom_dt;  // cz
+        Q_adaptive_(5, 5) = sp2 * nom_dt;  // vz
+        Q_adaptive_(6, 6) = sy2 * nom_dt;  // yaw
+        Q_adaptive_(7, 7) = sy2 * nom_dt;  // omega
+        Q_adaptive_(8, 8) = Q_adaptive_(9, 9) = Q_adaptive_(10, 10) = q_geo_ * nom_dt;
     }
 
     void RobotTarget::predict(const rclcpp::Time &time) {
         double dt = (time - last_time_).seconds();
         if (dt <= 0) return;
 
+        // CWNA (Continuous White Noise Acceleration) process noise matrix
+        // For each [pos, vel] pair: Q = σ² * [dt³/3, dt²/2; dt²/2, dt]
+        double sp2 = sigma_pos_ * sigma_pos_;
+        double sy2 = sigma_yaw_ * sigma_yaw_;
+        double dt2 = dt * dt;
+        double dt3 = dt2 * dt;
+
         Eigen::Matrix<double, STATE_DIM, STATE_DIM> Q = Eigen::Matrix<double, STATE_DIM, STATE_DIM>::Zero();
-        Q(0, 0) = q_x_ * dt;
-        Q(2, 2) = q_y_ * dt;
-        Q(4, 4) = q_z_ * dt;
-        Q(1, 1) = q_vx_ * dt;
-        Q(3, 3) = q_vy_ * dt;
-        Q(5, 5) = q_vz_ * dt;
-        Q(6, 6) = q_yaw_ * dt;
-        Q(7, 7) = q_v_yaw_ * dt;
+        // cx-vx pair (indices 0, 1)
+        Q(0, 0) = sp2 * dt3 / 3.0;  Q(0, 1) = sp2 * dt2 / 2.0;
+        Q(1, 0) = sp2 * dt2 / 2.0;  Q(1, 1) = sp2 * dt;
+        // cy-vy pair (indices 2, 3)
+        Q(2, 2) = sp2 * dt3 / 3.0;  Q(2, 3) = sp2 * dt2 / 2.0;
+        Q(3, 2) = sp2 * dt2 / 2.0;  Q(3, 3) = sp2 * dt;
+        // cz-vz pair (indices 4, 5)
+        Q(4, 4) = sp2 * dt3 / 3.0;  Q(4, 5) = sp2 * dt2 / 2.0;
+        Q(5, 4) = sp2 * dt2 / 2.0;  Q(5, 5) = sp2 * dt;
+        // yaw-omega pair (indices 6, 7)
+        Q(6, 6) = sy2 * dt3 / 3.0;  Q(6, 7) = sy2 * dt2 / 2.0;
+        Q(7, 6) = sy2 * dt2 / 2.0;  Q(7, 7) = sy2 * dt;
+        // Geometric parameters (indices 8, 9, 10) - simple random walk
         Q(8, 8) = Q(9, 9) = Q(10, 10) = q_geo_ * dt;
 
         auto f = [dt](const Eigen::Matrix<double, STATE_DIM, 1> &x) {
@@ -170,7 +186,8 @@ namespace robot_auto_aim {
 
                 Eigen::Matrix4d R = Eigen::Matrix4d::Zero();
                 R.block<3, 3>(0, 0) = R_pos_world;
-                R(3, 3) = (best_id == last_armor_id_) ? r_yaw_ : r_yaw_ * r_yaw_adaptive_factor_;
+                // Use per-UKF armor ID for yaw adaptive noise
+                R(3, 3) = (best_id == last_armor_ids_[k]) ? r_yaw_ : r_yaw_ * r_yaw_adaptive_factor_;
 
                 auto h_func = [this, best_id](const Eigen::Matrix<double, STATE_DIM, 1> &x_in) {
                     return this->h(x_in, best_id);
@@ -178,11 +195,11 @@ namespace robot_auto_aim {
                 if (ukfs_[k].update<MEAS_DIM>(z, h_func, R, normalize_meas, normalize_state, 15.0)) {
                     any_success = true;
                 }
+                last_armor_ids_[k] = best_id;
             }
 
-            if (current_best_id != last_armor_id_) {
+            if (current_best_id != last_armor_ids_[0]) {
                 armor_switch_count_++;
-                last_armor_id_ = current_best_id;
             }
 
             if (armor_switch_count_ >= 2 || update_count_ >= 100) {
@@ -208,34 +225,34 @@ namespace robot_auto_aim {
 
             Eigen::Matrix4d R = Eigen::Matrix4d::Zero();
             R.block<3, 3>(0, 0) = R_pos_world;
-            R(3, 3) = (best_id == last_armor_id_) ? r_yaw_ : r_yaw_ * r_yaw_adaptive_factor_;
+            R(3, 3) = (best_id == last_armor_ids_[best_ukf_idx_]) ? r_yaw_ : r_yaw_ * r_yaw_adaptive_factor_;
 
             auto h_func = [this, best_id](const Eigen::Matrix<double, STATE_DIM, 1> &x_in) {
                 return this->h(x_in, best_id);
             };
 
             if (adaptive_tracking_) {
+                // Build Q_base from CWNA with nominal dt for adaptive lower bound
                 Eigen::Matrix<double, STATE_DIM, STATE_DIM> Q_base = Eigen::Matrix<double, STATE_DIM,
                     STATE_DIM>::Zero();
-                Q_base(0, 0) = q_x_;
-                Q_base(2, 2) = q_y_;
-                Q_base(4, 4) = q_z_;
-                Q_base(1, 1) = q_vx_;
-                Q_base(3, 3) = q_vy_;
-                Q_base(5, 5) = q_vz_;
-                Q_base(6, 6) = q_yaw_;
-                Q_base(7, 7) = q_v_yaw_;
-                Q_base(8, 8) = Q_base(9, 9) = Q_base(10, 10) = q_geo_;
-                if (ukfs_[best_ukf_idx_].updateAdaptiveQ<MEAS_DIM>(z, h_func, R, Q_adaptive_, Q_base, q_alpha_,
+                double sp2 = sigma_pos_ * sigma_pos_;
+                double sy2 = sigma_yaw_ * sigma_yaw_;
+                constexpr double nom_dt = 0.01;
+                Q_base(0, 0) = Q_base(2, 2) = Q_base(4, 4) = sp2 * nom_dt;
+                Q_base(1, 1) = Q_base(3, 3) = Q_base(5, 5) = sp2 * nom_dt;
+                Q_base(6, 6) = sy2 * nom_dt;
+                Q_base(7, 7) = sy2 * nom_dt;
+                Q_base(8, 8) = Q_base(9, 9) = Q_base(10, 10) = q_geo_ * nom_dt;
+                if (ukfs_[best_ukf_idx_].template updateAdaptiveQ<MEAS_DIM>(z, h_func, R, Q_adaptive_, Q_base, q_alpha_,
                                                                    normalize_meas, normalize_state, 15.0)) {
                     any_success = true;
                 }
             } else {
-                if (ukfs_[best_ukf_idx_].update<MEAS_DIM>(z, h_func, R, normalize_meas, normalize_state, 15.0)) {
+                if (ukfs_[best_ukf_idx_].template update<MEAS_DIM>(z, h_func, R, normalize_meas, normalize_state, 15.0)) {
                     any_success = true;
                 }
             }
-            last_armor_id_ = best_id;
+            last_armor_ids_[best_ukf_idx_] = best_id;
         }
 
         if (any_success) {
@@ -255,8 +272,11 @@ namespace robot_auto_aim {
     bool RobotTarget::isDiverged() const {
         const auto &x = ukfs_[best_ukf_idx_].getState();
         const auto &cov = ukfs_[best_ukf_idx_].getCovariance().diagonal();
-        if (cov.head<3>().maxCoeff() > 1000.0) return true;
-        if (x.head<3>().norm() > 400.0) return true;
+        // Position covariances: cx(0), cy(2), cz(4) - skip velocity indices
+        if (cov(0) > 1000.0 || cov(2) > 1000.0 || cov(4) > 1000.0) return true;
+        // Position norm: cx(0), cy(2), cz(4)
+        double pos_norm = std::sqrt(x(0) * x(0) + x(2) * x(2) + x(4) * x(4));
+        if (pos_norm > 400.0) return true;
         if (x(8) < 0.05 || x(8) > 0.6) return true;
         return false;
     }

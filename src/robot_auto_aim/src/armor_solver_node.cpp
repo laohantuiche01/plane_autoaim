@@ -26,19 +26,9 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
     double max_lost_duration = declare_parameter("max_lost_duration", 1.0);
     int min_detect_count = declare_parameter("min_detect_count", 5);
 
-    auto declare_target_params = [this](const std::string& prefix, TargetParams& params, bool has_velocity) {
-        params.q_x = declare_parameter(prefix + ".q_x", 0.1);
-        params.q_y = declare_parameter(prefix + ".q_y", 0.1);
-        params.q_z = declare_parameter(prefix + ".q_z", 0.02);
-        if (has_velocity) {
-            params.q_vx = declare_parameter(prefix + ".q_vx", 5.0);
-            params.q_vy = declare_parameter(prefix + ".q_vy", 5.0);
-            params.q_vz = declare_parameter(prefix + ".q_vz", 1.0);
-        } else {
-            params.q_vx = 0.0; params.q_vy = 0.0; params.q_vz = 0.0;
-        }
-        params.q_yaw = declare_parameter(prefix + ".q_yaw", 0.01);
-        params.q_v_yaw = declare_parameter(prefix + ".q_v_yaw", 0.1);
+    auto declare_target_params = [this](const std::string& prefix, TargetParams& params) {
+        params.sigma_pos = declare_parameter(prefix + ".sigma_pos", 20.0);
+        params.sigma_yaw = declare_parameter(prefix + ".sigma_yaw", 2.0);
         params.q_geo = declare_parameter(prefix + ".q_geo", 0.0001);
         params.r_x = declare_parameter(prefix + ".r_x", 0.5);
         params.r_y = declare_parameter(prefix + ".r_y", 0.5);
@@ -54,8 +44,8 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
         params.max_yaw_cov = declare_parameter(prefix + ".max_yaw_cov", 1.0);
     };
 
-    declare_target_params("robot", robot_params_, true);
-    declare_target_params("outpost", outpost_params_, false);
+    declare_target_params("robot", robot_params_);
+    declare_target_params("outpost", outpost_params_);
     
     // UKF Hyperparams
     ukf_alpha_ = declare_parameter("ukf_alpha", 0.001);
@@ -83,18 +73,12 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
             result.successful = true;
             bool should_reset = false;
 
-            auto update_param = [](const rclcpp::Parameter& param, const std::string& prefix, TargetParams& params, bool has_velocity) {
+            auto update_param = [](const rclcpp::Parameter& param, const std::string& prefix, TargetParams& params) {
                 const auto& name = param.get_name();
                 if (name.find(prefix + ".") != 0) return false;
                 std::string key = name.substr(prefix.length() + 1);
-                if (key == "q_x") params.q_x = param.as_double();
-                else if (key == "q_y") params.q_y = param.as_double();
-                else if (key == "q_z") params.q_z = param.as_double();
-                else if (has_velocity && key == "q_vx") params.q_vx = param.as_double();
-                else if (has_velocity && key == "q_vy") params.q_vy = param.as_double();
-                else if (has_velocity && key == "q_vz") params.q_vz = param.as_double();
-                else if (key == "q_yaw") params.q_yaw = param.as_double();
-                else if (key == "q_v_yaw") params.q_v_yaw = param.as_double();
+                if (key == "sigma_pos") params.sigma_pos = param.as_double();
+                else if (key == "sigma_yaw") params.sigma_yaw = param.as_double();
                 else if (key == "q_geo") params.q_geo = param.as_double();
                 else if (key == "r_x") params.r_x = param.as_double();
                 else if (key == "r_y") params.r_y = param.as_double();
@@ -113,8 +97,8 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
             };
 
             for (const auto& param : parameters) {
-                if (update_param(param, "robot", robot_params_, true)) should_reset = true;
-                else if (update_param(param, "outpost", outpost_params_, false)) should_reset = true;
+                if (update_param(param, "robot", robot_params_)) should_reset = true;
+                else if (update_param(param, "outpost", outpost_params_)) should_reset = true;
                 else if (param.get_name() == "debug") {
                     debug_ = param.as_bool();
                     if (debug_ && this->get_current_state().id() == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {

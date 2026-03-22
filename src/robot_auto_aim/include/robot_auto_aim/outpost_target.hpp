@@ -70,9 +70,10 @@ private:
     rclcpp::Time last_time_;
     int update_count_;
 
-    // Params
-    double q_x_, q_y_, q_z_;
-    double q_yaw_, q_v_yaw_, q_geo_; // q_geo_ for radius 'r' and 'h'
+    // CWNA process noise parameters
+    double sigma_pos_;   // Position drift std dev (random walk, no velocity states)
+    double sigma_yaw_;   // Angular acceleration std dev (rad/s²), CWNA for yaw-omega
+    double q_geo_;       // Geometric parameter random walk noise (r, h)
     double r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_;
     double dist_scale_coeff_, z_scale_coeff_;
     

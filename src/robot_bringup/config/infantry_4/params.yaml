@@ -62,14 +62,8 @@ armor_solver:
     bullet_speed: 25.0
 
     robot:
-      q_x: 0.001
-      q_y: 0.001
-      q_z: 0.001
-      q_vx: 0.1
-      q_vy: 0.01
-      q_vz: 0.1
-      q_yaw: 0.01
-      q_v_yaw: 0.001
+      sigma_pos: 0.3
+      sigma_yaw: 0.03
       q_geo: 0.0001
       r_x: 0.5
       r_y: 0.5
@@ -82,14 +76,8 @@ armor_solver:
       z_scale_coeff: 5.0
 
     outpost:
-      q_x: 0.001
-      q_y: 0.001
-      q_z: 0.001
-      q_vx: 0.1
-      q_vy: 0.1
-      q_vz: 0.1
-      q_yaw: 0.01
-      q_v_yaw: 0.1
+      sigma_pos: 0.03
+      sigma_yaw: 0.3
       q_geo: 0.0001
       r_x: 0.5
       r_y: 0.5
