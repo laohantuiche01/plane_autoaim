@@ -23,13 +23,14 @@ public:
         sigma_pos_ = params.sigma_pos;
         sigma_yaw_ = params.sigma_yaw;
         q_geo_ = params.q_geo;
-        r_x_ = params.r_x; r_y_ = params.r_y; r_z_ = params.r_z;
+        r_range_ = params.r_range;
+        r_range_k_ = params.r_range_k;
+        r_angle_ = params.r_angle;
         r_yaw_ = params.r_yaw;
         r_yaw_adaptive_factor_ = params.r_yaw_adaptive_factor;
+        r_yaw_viewing_k_ = params.r_yaw_viewing_k;
         adaptive_tracking_ = params.adaptive_tracking;
         q_alpha_ = params.q_alpha;
-        dist_scale_coeff_ = params.dist_scale_coeff;
-        z_scale_coeff_ = params.z_scale_coeff;
         min_update_count_ = params.min_update_count;
         max_pos_cov_ = params.max_pos_cov;
         max_yaw_cov_ = params.max_yaw_cov;
@@ -72,6 +73,9 @@ private:
         CONFIRMED
     };
 
+    // Cartesian armor position — for matching and getResolvedArmors()
+    Eigen::Vector4d getArmorCartesian(const Eigen::VectorXd& x, int id) const;
+    // Spherical observation — for UKF update
     Eigen::Vector4d h(const Eigen::VectorXd& x, int id) const;
 
     robot_utils::UKF<STATE_DIM> ukfs_[2];
@@ -94,8 +98,11 @@ private:
     double sigma_pos_;   // Linear acceleration std dev (m/s²)
     double sigma_yaw_;   // Angular acceleration std dev (rad/s²)
     double q_geo_;       // Geometric parameter random walk noise
-    double r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_;
-    double dist_scale_coeff_, z_scale_coeff_;
+
+    // Spherical R parameters
+    double r_range_, r_range_k_;     // Range noise: r_range * (1 + r_range_k * range²)
+    double r_angle_;                 // Azimuth/elevation noise (constant)
+    double r_yaw_, r_yaw_adaptive_factor_, r_yaw_viewing_k_;
     
     // Convergence
     int min_update_count_;

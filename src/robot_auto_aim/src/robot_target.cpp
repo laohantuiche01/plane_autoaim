@@ -7,8 +7,8 @@ namespace robot_auto_aim {
         : best_ukf_idx_(0), confirmation_state_(ConfirmationState::CONFIRMED), armor_num_(4), priority_(0),
           last_time_(0), last_armor_ids_{0, 0},
           update_count_(0), sigma_pos_(20.0), sigma_yaw_(2.0), q_geo_(0.0001),
-          r_x_(0.5), r_y_(0.5), r_z_(0.5), r_yaw_(0.05), r_yaw_adaptive_factor_(50.0),
-          dist_scale_coeff_(0.1), z_scale_coeff_(5.0),
+          r_range_(0.01), r_range_k_(0.5), r_angle_(0.0003),
+          r_yaw_(0.05), r_yaw_adaptive_factor_(50.0), r_yaw_viewing_k_(10.0),
           min_update_count_(5), max_pos_cov_(3.0), max_yaw_cov_(1.0),
           adaptive_tracking_(false), q_alpha_(0.1) {
         for (int i = 0; i < 2; ++i) {
@@ -143,25 +143,26 @@ namespace robot_auto_aim {
     }
 
     bool RobotTarget::update(const TrackerArmor &armor) {
+        // Convert observation to spherical coordinates
+        auto sph = robot_utils::cartesianToSpherical(armor.position);
         Eigen::Vector4d z;
-        z << armor.position.x(), armor.position.y(), armor.position.z(), armor.yaw;
+        z << sph[robot_utils::RANGE], sph[robot_utils::AZIMUTH], sph[robot_utils::ELEVATION], armor.yaw;
         measurement_ = z;
 
-        double dist = armor.position.norm();
-        double dist_scale = 1.0 + dist_scale_coeff_ * dist * dist;
-        Eigen::Matrix3d R_pos_cam = Eigen::Matrix3d::Zero();
-        R_pos_cam(0, 0) = r_x_ * dist_scale;
-        R_pos_cam(1, 1) = r_y_ * dist_scale;
-        R_pos_cam(2, 2) = r_z_ * z_scale_coeff_ * dist_scale;
-        Eigen::Matrix3d rot = armor.orientation.toRotationMatrix();
-        Eigen::Matrix3d R_pos_world = rot * R_pos_cam * rot.transpose();
+        double range = sph[robot_utils::RANGE];
 
+        // Normalize functions for angular residuals
         auto normalize_meas = [](Eigen::Vector4d &z_diff) {
-            z_diff(3) = std::atan2(std::sin(z_diff(3)), std::cos(z_diff(3)));
+            z_diff(1) = std::atan2(std::sin(z_diff(1)), std::cos(z_diff(1)));  // azimuth
+            z_diff(3) = std::atan2(std::sin(z_diff(3)), std::cos(z_diff(3)));  // yaw
         };
         auto normalize_state = [](Eigen::Matrix<double, STATE_DIM, 1> &x_diff) {
             x_diff(6) = std::atan2(std::sin(x_diff(6)), std::cos(x_diff(6)));
         };
+
+        // Viewing-angle-dependent yaw noise: amplify when head-on (cos_va → 1)
+        double cos_va = std::cos(armor.viewing_angle);
+        double base_r_yaw = r_yaw_ * (1.0 + r_yaw_viewing_k_ * cos_va * cos_va);
 
         bool any_success = false;
 
@@ -172,7 +173,7 @@ namespace robot_auto_aim {
                 int best_id = 0;
                 double min_combined_err = 1e10;
                 for (int i = 0; i < 4; ++i) {
-                    Eigen::Vector4d pred = h(x, i);
+                    Eigen::Vector4d pred = getArmorCartesian(x, i);
                     double pos_err = (armor.position - pred.head<3>()).norm();
                     double ang_err = std::abs(std::atan2(std::sin(armor.yaw - pred(3)), std::cos(armor.yaw - pred(3))));
                     double err = pos_err * 10.0 + ang_err;
@@ -184,10 +185,12 @@ namespace robot_auto_aim {
                 accumulated_errors_[k] += min_combined_err;
                 if (k == 0) current_best_id = best_id;
 
+                // Spherical R matrix — diagonal
                 Eigen::Matrix4d R = Eigen::Matrix4d::Zero();
-                R.block<3, 3>(0, 0) = R_pos_world;
-                // Use per-UKF armor ID for yaw adaptive noise
-                R(3, 3) = (best_id == last_armor_ids_[k]) ? r_yaw_ : r_yaw_ * r_yaw_adaptive_factor_;
+                R(0, 0) = r_range_ * (1.0 + r_range_k_ * range * range);
+                R(1, 1) = r_angle_;
+                R(2, 2) = r_angle_;
+                R(3, 3) = (best_id == last_armor_ids_[k]) ? base_r_yaw : base_r_yaw * r_yaw_adaptive_factor_;
 
                 auto h_func = [this, best_id](const Eigen::Matrix<double, STATE_DIM, 1> &x_in) {
                     return this->h(x_in, best_id);
@@ -223,16 +226,18 @@ namespace robot_auto_aim {
                 }
             }
 
+            // Spherical R matrix — diagonal
             Eigen::Matrix4d R = Eigen::Matrix4d::Zero();
-            R.block<3, 3>(0, 0) = R_pos_world;
-            R(3, 3) = (best_id == last_armor_ids_[best_ukf_idx_]) ? r_yaw_ : r_yaw_ * r_yaw_adaptive_factor_;
+            R(0, 0) = r_range_ * (1.0 + r_range_k_ * range * range);
+            R(1, 1) = r_angle_;
+            R(2, 2) = r_angle_;
+            R(3, 3) = (best_id == last_armor_ids_[best_ukf_idx_]) ? base_r_yaw : base_r_yaw * r_yaw_adaptive_factor_;
 
             auto h_func = [this, best_id](const Eigen::Matrix<double, STATE_DIM, 1> &x_in) {
                 return this->h(x_in, best_id);
             };
 
             if (adaptive_tracking_) {
-                // Build Q_base from CWNA with nominal dt for adaptive lower bound
                 Eigen::Matrix<double, STATE_DIM, STATE_DIM> Q_base = Eigen::Matrix<double, STATE_DIM,
                     STATE_DIM>::Zero();
                 double sp2 = sigma_pos_ * sigma_pos_;
@@ -281,7 +286,7 @@ namespace robot_auto_aim {
         return false;
     }
 
-    Eigen::Vector4d RobotTarget::h(const Eigen::VectorXd &x, int id) const {
+    Eigen::Vector4d RobotTarget::getArmorCartesian(const Eigen::VectorXd &x, int id) const {
         double yaw = x(6);
         double r = x(8);
         double l = x(9);
@@ -294,11 +299,18 @@ namespace robot_auto_aim {
         return Eigen::Vector4d(ax, ay, current_z, angle);
     }
 
+    Eigen::Vector4d RobotTarget::h(const Eigen::VectorXd &x, int id) const {
+        auto cart = getArmorCartesian(x, id);
+        auto sph = robot_utils::cartesianToSpherical(cart.head<3>());
+        return Eigen::Vector4d(sph[robot_utils::RANGE], sph[robot_utils::AZIMUTH],
+                               sph[robot_utils::ELEVATION], cart(3));
+    }
+
     std::vector<Eigen::Vector4d> RobotTarget::getResolvedArmors() const {
         std::vector<Eigen::Vector4d> armors;
         const auto x = ukfs_[best_ukf_idx_].getState();
         for (int i = 0; i < 4; ++i) {
-            armors.push_back(h(x, i));
+            armors.push_back(getArmorCartesian(x, i));
         }
         return armors;
     }

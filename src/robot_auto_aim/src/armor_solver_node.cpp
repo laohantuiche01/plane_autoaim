@@ -30,15 +30,14 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
         params.sigma_pos = declare_parameter(prefix + ".sigma_pos", 20.0);
         params.sigma_yaw = declare_parameter(prefix + ".sigma_yaw", 2.0);
         params.q_geo = declare_parameter(prefix + ".q_geo", 0.0001);
-        params.r_x = declare_parameter(prefix + ".r_x", 0.5);
-        params.r_y = declare_parameter(prefix + ".r_y", 0.5);
-        params.r_z = declare_parameter(prefix + ".r_z", 0.5);
+        params.r_range = declare_parameter(prefix + ".r_range", 0.01);
+        params.r_range_k = declare_parameter(prefix + ".r_range_k", 0.5);
+        params.r_angle = declare_parameter(prefix + ".r_angle", 0.0003);
         params.r_yaw = declare_parameter(prefix + ".r_yaw", 0.05);
         params.r_yaw_adaptive_factor = declare_parameter(prefix + ".r_yaw_adaptive_factor", 50.0);
+        params.r_yaw_viewing_k = declare_parameter(prefix + ".r_yaw_viewing_k", 10.0);
         params.adaptive_tracking = declare_parameter(prefix + ".adaptive_tracking", false);
         params.q_alpha = declare_parameter(prefix + ".q_alpha", 0.1);
-        params.dist_scale_coeff = declare_parameter(prefix + ".dist_scale_coeff", 0.1);
-        params.z_scale_coeff = declare_parameter(prefix + ".z_scale_coeff", 5.0);
         params.min_update_count = declare_parameter(prefix + ".min_update_count", 5);
         params.max_pos_cov = declare_parameter(prefix + ".max_pos_cov", 3.0);
         params.max_yaw_cov = declare_parameter(prefix + ".max_yaw_cov", 1.0);
@@ -80,15 +79,14 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
                 if (key == "sigma_pos") params.sigma_pos = param.as_double();
                 else if (key == "sigma_yaw") params.sigma_yaw = param.as_double();
                 else if (key == "q_geo") params.q_geo = param.as_double();
-                else if (key == "r_x") params.r_x = param.as_double();
-                else if (key == "r_y") params.r_y = param.as_double();
-                else if (key == "r_z") params.r_z = param.as_double();
+                else if (key == "r_range") params.r_range = param.as_double();
+                else if (key == "r_range_k") params.r_range_k = param.as_double();
+                else if (key == "r_angle") params.r_angle = param.as_double();
                 else if (key == "r_yaw") params.r_yaw = param.as_double();
                 else if (key == "r_yaw_adaptive_factor") params.r_yaw_adaptive_factor = param.as_double();
+                else if (key == "r_yaw_viewing_k") params.r_yaw_viewing_k = param.as_double();
                 else if (key == "adaptive_tracking") params.adaptive_tracking = param.as_bool();
                 else if (key == "q_alpha") params.q_alpha = param.as_double();
-                else if (key == "dist_scale_coeff") params.dist_scale_coeff = param.as_double();
-                else if (key == "z_scale_coeff") params.z_scale_coeff = param.as_double();
                 else if (key == "min_update_count") params.min_update_count = param.as_int();
                 else if (key == "max_pos_cov") params.max_pos_cov = param.as_double();
                 else if (key == "max_yaw_cov") params.max_yaw_cov = param.as_double();
@@ -227,6 +225,9 @@ void ArmorSolverNode::armorsCallback(const robot_interfaces::msg::Armors::Shared
             tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
             armor.yaw = yaw;
             
+            // Compute viewing angle from armor normal and line-of-sight
+            armor.viewing_angle = robot_utils::computeViewingAngle(armor.position, armor.orientation);
+
             // Priority (can be based on distance to center)
             armor.priority = msg_armor.distance_to_image_center;
             
@@ -244,12 +245,24 @@ void ArmorSolverNode::armorsCallback(const robot_interfaces::msg::Armors::Shared
         measurement.header.stamp = timestamp;
         measurement.header.frame_id = odom_frame_;
         if (target) {
+            // Spherical measurement (from UKF observation)
             Eigen::VectorXd target_measurement = target->getMeasurement();
             if (target_measurement.size() >= 4) {
-                measurement.x = target_measurement[0];
-                measurement.y = target_measurement[1];
-                measurement.z = target_measurement[2];
+                measurement.range = target_measurement[0];
+                measurement.azimuth = target_measurement[1];
+                measurement.elevation = target_measurement[2];
                 measurement.yaw = target_measurement[3];
+
+                // Convert back to Cartesian for debug convenience
+                Eigen::Vector3d sph(target_measurement[0], target_measurement[1], target_measurement[2]);
+                Eigen::Vector3d cart = robot_utils::sphericalToCartesian(sph);
+                measurement.x = cart.x();
+                measurement.y = cart.y();
+                measurement.z = cart.z();
+            }
+            // Find viewing_angle from the matched armor (use first detector armor as approximation)
+            if (!detector_armors.empty()) {
+                measurement.viewing_angle = detector_armors.front().viewing_angle;
             }
         }
         measurement_pub_->publish(measurement);

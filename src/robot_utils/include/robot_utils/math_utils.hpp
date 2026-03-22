@@ -2,6 +2,7 @@
 #define ROBOT_UTILS__MATH_UTILS_HPP_
 
 #include <cmath>
+#include <algorithm>
 
 #include <opencv2/core.hpp>
 #include <Eigen/Dense>
@@ -65,6 +66,36 @@ inline double deg_to_rad(double deg) {
  */
 inline double rad_to_deg(double rad) {
     return rad * 180.0 / M_PI;
+}
+
+// --- Spherical coordinate utilities ---
+
+/// 球坐标分量索引
+enum SphericalIdx : int { RANGE = 0, AZIMUTH = 1, ELEVATION = 2 };
+
+/// Cartesian (x,y,z) → Spherical (range, azimuth, elevation)
+/// azimuth ∈ [-π, π], elevation ∈ [-π/2, π/2]
+inline Eigen::Vector3d cartesianToSpherical(const Eigen::Vector3d& p) {
+    double range = p.norm();
+    double azimuth = std::atan2(p.y(), p.x());
+    double elevation = std::asin(std::clamp(p.z() / std::max(range, 1e-9), -1.0, 1.0));
+    return {range, azimuth, elevation};
+}
+
+/// Spherical (range, azimuth, elevation) → Cartesian (x,y,z)
+inline Eigen::Vector3d sphericalToCartesian(const Eigen::Vector3d& sph) {
+    double cos_el = std::cos(sph[ELEVATION]);
+    return {sph[RANGE] * cos_el * std::cos(sph[AZIMUTH]),
+            sph[RANGE] * cos_el * std::sin(sph[AZIMUTH]),
+            sph[RANGE] * std::sin(sph[ELEVATION])};
+}
+
+/// 计算装甲板法向与视线方向的夹角 [0, π/2]
+/// position: 装甲板在 odom 系中的位置, orientation: 装甲板姿态四元数
+inline double computeViewingAngle(const Eigen::Vector3d& position,
+                                   const Eigen::Quaterniond& orientation) {
+    Eigen::Vector3d normal = orientation.toRotationMatrix().col(0);
+    return std::acos(std::clamp(std::abs(normal.dot(position.normalized())), 0.0, 1.0));
 }
 
 }  // namespace robot_utils

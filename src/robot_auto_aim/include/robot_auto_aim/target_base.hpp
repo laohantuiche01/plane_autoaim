@@ -19,6 +19,7 @@ struct TrackerArmor {
     Eigen::Quaterniond orientation; // Rotation from camera to odom
     double yaw;
     double priority;
+    double viewing_angle;  // Angle between armor normal and line-of-sight [0, π/2]
     rclcpp::Time timestamp;
 };
 
@@ -32,15 +33,17 @@ struct TargetParams {
     // Geometric parameter noise (r, l, h), simple random walk
     double q_geo;
 
-    // Measurement noise
-    double r_x, r_y, r_z, r_yaw, r_yaw_adaptive_factor;
+    // Spherical measurement noise (R matrix)
+    double r_range;              // Base range noise variance (m²)
+    double r_range_k;            // Range noise growth: R_range = r_range * (1 + r_range_k * range²)
+    double r_angle;              // Azimuth/elevation noise variance (rad², constant)
+    double r_yaw;                // Base yaw noise variance (rad²)
+    double r_yaw_adaptive_factor; // Yaw noise multiplier on armor ID switch
+    double r_yaw_viewing_k;      // Yaw noise amplification at head-on: R_yaw *= (1 + k * cos²(va))
 
     // Adaptive Q (Sage-Husa)
     bool adaptive_tracking;
     double q_alpha;
-
-    // Distance-dependent R scaling
-    double dist_scale_coeff, z_scale_coeff;
 
     // Convergence
     int min_update_count;

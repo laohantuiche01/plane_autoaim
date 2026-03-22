@@ -11,7 +11,7 @@ namespace robot_auto_aim {
 class OutpostTarget : public TargetBase {
 public:
     static constexpr int STATE_DIM = 7; // cx,cy,cz,yaw,v_yaw,r,h
-    static constexpr int MEAS_DIM = 4; // ax,ay,az,ayaw
+    static constexpr int MEAS_DIM = 4; // range,azimuth,elevation,ayaw
 
     OutpostTarget();
     
@@ -51,6 +51,9 @@ private:
         CONFIRMED
     };
 
+    // Cartesian armor position — for matching and getResolvedArmors()
+    Eigen::Vector4d getArmorCartesian(const Eigen::VectorXd& x, int id) const;
+    // Spherical observation — for UKF update
     Eigen::Vector4d h(const Eigen::VectorXd& x, int id) const;
 
     // 3 parallel UKFs for 3 hypotheses (first armor is highest, middle, or lowest)
@@ -74,8 +77,11 @@ private:
     double sigma_pos_;   // Position drift std dev (random walk, no velocity states)
     double sigma_yaw_;   // Angular acceleration std dev (rad/s²), CWNA for yaw-omega
     double q_geo_;       // Geometric parameter random walk noise (r, h)
-    double r_x_, r_y_, r_z_, r_yaw_, r_yaw_adaptive_factor_;
-    double dist_scale_coeff_, z_scale_coeff_;
+
+    // Spherical R parameters
+    double r_range_, r_range_k_;
+    double r_angle_;
+    double r_yaw_, r_yaw_adaptive_factor_, r_yaw_viewing_k_;
     
     // Convergence
     int min_update_count_;

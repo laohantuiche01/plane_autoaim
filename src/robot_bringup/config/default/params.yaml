@@ -61,36 +61,36 @@ armor_solver:
     odom_frame: odom
     outpost:
       adaptive_tracking: false
-      dist_scale_coeff: 0.1
       max_pos_cov: 3.0
       max_yaw_cov: 1.0
       min_update_count: 5
       q_alpha: 0.1
       q_geo: 0.0001
-      sigma_pos: 0.1       # Position drift std dev (random walk, no velocity states)
-      sigma_yaw: 0.3       # Angular acceleration std dev (rad/s²), CWNA for yaw-omega
-      r_x: 0.5
-      r_y: 0.5
+      sigma_pos: 0.1
+      sigma_yaw: 0.3
+      # Spherical R parameters
+      r_range: 0.01
+      r_range_k: 0.5
+      r_angle: 0.0003
       r_yaw: 0.05
       r_yaw_adaptive_factor: 50.0
-      r_z: 0.5
-      z_scale_coeff: 5.0
+      r_yaw_viewing_k: 10.0
     robot:
       adaptive_tracking: false
-      dist_scale_coeff: 0.1
       max_pos_cov: 2.2
       max_yaw_cov: 1.0
       min_update_count: 5
       q_alpha: 0.1
       q_geo: 0.001
-      sigma_pos: 20.0      # Linear acceleration std dev (m/s²), CWNA model
-      sigma_yaw: 2.0       # Angular acceleration std dev (rad/s²), CWNA model
-      r_x: 5.0
-      r_y: 5.0
+      sigma_pos: 20.0
+      sigma_yaw: 2.0
+      # Spherical R parameters
+      r_range: 0.01
+      r_range_k: 0.5
+      r_angle: 0.0003
       r_yaw: 0.5
       r_yaw_adaptive_factor: 50.0
-      r_z: 0.5
-      z_scale_coeff: 100.0
+      r_yaw_viewing_k: 10.0
     trajectory:
       aim_delay_offset: 0.0
       dt: 0.05
