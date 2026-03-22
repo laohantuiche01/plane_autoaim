@@ -305,6 +305,7 @@ std::vector<robot_auto_aim::Armor> ArmorDetectorNode::detectArmors(const sensor_
     auto latency = (end_time - img_msg->header.stamp).seconds() * 1000;
 
     if (debug_) {
+        if (end_time < last_debug_img_time_) last_debug_img_time_ = end_time;
         bool should_publish_img = (end_time - last_debug_img_time_).seconds() >= (1.0 / debug_img_freq_);
 
         if (should_publish_img) {
@@ -337,6 +338,7 @@ std::vector<robot_auto_aim::Armor> ArmorDetectorNode::detectArmors(const sensor_
         }
     }
 
+    if (end_time < last_fps_time_) last_fps_time_ = end_time;
     if ((end_time - last_fps_time_).seconds() >= 5.0) {
         RCLCPP_INFO(this->get_logger(), "Armor Detector - Input FPS: %.2f | Avg Process Time: %.2f ms", 
             frame_count_ / 5.0, total_detect_duration_ms_ / frame_count_);

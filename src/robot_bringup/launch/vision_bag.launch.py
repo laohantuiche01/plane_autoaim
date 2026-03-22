@@ -39,21 +39,21 @@ def launch_setup(context, *args, **kwargs):
                         package='robot_auto_aim',
                         plugin='robot_auto_aim::ArmorDetectorNode',
                         name='armor_detector',
-                        parameters=[params_path],
+                        parameters=[params_path, {'use_sim_time': True}],
                         extra_arguments=[{'use_intra_process_comms': True}]
                     ),
                     ComposableNode(
                         package='robot_auto_aim',
                         plugin='robot_auto_aim::ArmorSolverNode',
                         name='armor_solver',
-                        parameters=[params_path],
+                        parameters=[params_path, {'use_sim_time': True}],
                         extra_arguments=[{'use_intra_process_comms': True}]
                     ),
                     ComposableNode(
                         package='robot_ballistics',
                         plugin='robot_ballistics::BallisticsNode',
                         name='ballistics_node',
-                        parameters=[params_path],
+                        parameters=[params_path, {'use_sim_time': True}],
                         extra_arguments=[{'use_intra_process_comms': True}]
                     ),
                 ],
@@ -68,7 +68,7 @@ def launch_setup(context, *args, **kwargs):
         period=3.0,
         actions=[
             ExecuteProcess(
-                cmd=['nice', '-n', '-20', 'taskset', '-c', '4,5', 'ros2', 'bag', 'play', '-l', bag_path],
+                cmd=['nice', '-n', '-20', 'taskset', '-c', '4,5', 'ros2', 'bag', 'play', '--clock', '-l', bag_path],
                 output='screen'
             )
         ]
@@ -83,7 +83,7 @@ def launch_setup(context, *args, **kwargs):
                 package='robot_manager',
                 executable='manager_component_node',
                 name='robot_manager',
-                parameters=[params_path],
+                parameters=[params_path, {'use_sim_time': True}],
                 output='both',
                 respawn=True,
             )
