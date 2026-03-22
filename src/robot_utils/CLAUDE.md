@@ -20,7 +20,7 @@
 |--------|----------|
 | `include/robot_utils/ukf.hpp` | `robot_utils::UKF<N>` 模板类（header-only） |
 | `include/robot_utils/pnp_solver.hpp` | `robot_utils::PnPSolver` 类 |
-| `include/robot_utils/math_utils.hpp` | 角度工具函数、`tf2ToEigen`、`EnemyColor` 枚举 |
+| `include/robot_utils/math_utils.hpp` | 角度工具、坐标系转换（tf2/cv→Eigen）、球坐标转换（`cartesianToSpherical`/`sphericalToCartesian`）、`SphericalIdx` 枚举、`computeViewingAngle` |
 | `include/robot_utils/url_resolver.hpp` | `robot_utils::URLResolver::getResolvedPath` |
 | `include/robot_utils/savitzky_golay.hpp` | `robot_utils::SavitzkyGolayFilter` 类 |
 | `include/robot_utils/common.hpp` | 公共类型定义 |

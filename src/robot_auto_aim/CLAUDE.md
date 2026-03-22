@@ -103,13 +103,38 @@
 | `min_detect_count` | 5 | 初始化所需最小连续检测次数 |
 | `bullet_speed` | 25.0 | 子弹初速 (m/s)，用于飞行时间估算 |
 | `ukf_alpha/beta/kappa` | 0.001/2.0/0.0 | UKF 超参数 |
-| `robot.*` | 见 params.yaml | 机器人目标 UKF 噪声矩阵 Q/R 参数 |
-| `outpost.*` | 见 params.yaml | 前哨站目标 UKF 噪声矩阵 Q/R 参数 |
+| `robot.*` | 见下方参数表 | 机器人目标 UKF 参数（Q/R/P0/门限） |
+| `outpost.*` | 见下方参数表 | 前哨站目标 UKF 参数 |
 | `trajectory.num_points` | 11 | 轨迹序列点数（奇数） |
 | `trajectory.dt` | 0.05 | 轨迹点时间间隔 (s) |
 | `trajectory.omega_low/high` | 1.5/4.0 | 径向收缩转速阈值 (rad/s) |
 | `trajectory.switch_concentration` | 20.0 | 切向软切换余弦指数 n |
 | `trajectory.hit/aim_delay_offset` | 0.0 | 击打/瞄准点时间偏置补偿 (s) |
+
+**robot/outpost 子参数（Q/R/P0/门限）**
+
+| 参数名 | 默认值 (robot / outpost) | 说明 |
+|--------|--------------------------|------|
+| `sigma_pos` | 20.0 / 0.1 | CWNA 加速度标准差 (m/s²)；outpost 为位置漂移标准差 |
+| `sigma_yaw` | 2.0 / 0.3 | 角加速度标准差 (rad/s²)，CWNA |
+| `q_geo` | 0.001 / 0.0001 | 几何参数 (r, l, h) 随机游走噪声 |
+| `r_range` | 0.01 | 球坐标距离噪声基础方差 (m²) |
+| `r_range_k` | 0.5 | 距离噪声随 range² 增长系数 |
+| `r_angle` | 0.0003 | 方位角/俯仰角噪声方差 (rad²，常数) |
+| `r_yaw` | 0.05 / 0.05 | 基础 yaw 噪声方差 (rad²) |
+| `r_yaw_adaptive_factor` | 50.0 | 切换装甲板时 yaw 噪声放大倍数 |
+| `r_yaw_viewing_k` | 10.0 | 正对时 yaw 噪声放大系数：R_yaw *= (1 + k·cos²(va)) |
+| `mahalanobis_thresh` | 15.0 | 卡方门限（4DoF: 9.49=5%, 7.78=10%） |
+| `p0_pos` | 0.1 | 位置初始协方差 |
+| `p0_vel` | 10.0 | 速度初始协方差（仅 robot） |
+| `p0_yaw` | 0.5 | yaw 初始协方差 |
+| `p0_omega` | 100.0 / 10.0 | 角速度初始协方差 |
+| `p0_geo` | 0.1 | 几何参数初始协方差 |
+| `adaptive_tracking` | false | 是否启用 Sage-Husa 自适应 Q |
+| `q_alpha` | 0.1 | 自适应 Q 学习率 |
+| `min_update_count` | 5 | 收敛判定最小更新次数 |
+| `max_pos_cov` | 2.2 / 3.0 | 位置协方差收敛阈值 |
+| `max_yaw_cov` | 1.0 | yaw 协方差收敛阈值 |
 
 **跟踪器状态机**
 
@@ -164,6 +189,8 @@ colcon test --packages-select robot_auto_aim
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| 1.2.0 | 2026-03-22 | 暴露 mahalanobis_thresh 和 P0 初始协方差参数 |
+| 1.1.0 | 2026-03-22 | 观测模型重构为球坐标系，CWNA Q 矩阵，修复 isDiverged/CONFIRMING bug |
 | 1.0.0 | 2026-03-22 | 初始化文档，自动生成 |
 
 ---
@@ -190,9 +217,14 @@ colcon test --packages-select robot_auto_aim
 | 9 | `l` | 奇偶半径差（奇数面半径 = r + l） |
 | 10 | `h` | 偶奇面高度差（奇数面 z = cz + h） |
 
-#### 观测向量（MEAS_DIM = 4）：`[ax, ay, az, ayaw]`
+#### 观测向量（MEAS_DIM = 4）：`[range, azimuth, elevation, armor_yaw]`（球坐标）
 
-#### 过程模型 `f(x, dt)`（匀速直线 + 匀速旋转）
+观测量采用球坐标系，R 矩阵天然对角化，物理意义清晰：
+- `range`：目标距离，噪声 `∝ (1 + k·range²)`
+- `azimuth/elevation`：方位角/俯仰角，噪声近似常数（由像素精度决定）
+- `armor_yaw`：装甲板朝向，噪声随 viewing angle 自适应（正对时放大）
+
+#### 过程模型 `f(x, dt)`（CWNA 匀速直线 + 匀速旋转）
 
 ```
 cx   += vx  * dt
@@ -202,15 +234,28 @@ yaw  += omega * dt        # 归一化到 [-π, π]
 # 其余分量保持不变
 ```
 
+Q 矩阵使用 CWNA（连续白噪声加速度）模型，每个 `[pos, vel]` 对：
+```
+Q_axis = σ_pos² × | dt³/3   dt²/2 |
+                   | dt²/2   dt    |
+```
+
 #### 观测模型 `h(x, id)`（id = 0..3，按 90° 间隔分布）
 
+先计算笛卡尔装甲板位置（`getArmorCartesian`），再转球坐标：
 ```
+# 笛卡尔中间量
 angle     = yaw + id * π/2
 current_r = (id % 2 == 0) ? r : (r + l)
 current_z = (id % 2 == 0) ? cz : (cz + h)
 ax = cx - current_r * cos(angle)
 ay = cy - current_r * sin(angle)
-return (ax, ay, current_z, angle)
+
+# 转球坐标输出
+range     = sqrt(ax² + ay² + current_z²)
+azimuth   = atan2(ay, ax)
+elevation = asin(current_z / range)
+return (range, azimuth, elevation, angle)
 ```
 
 #### 双假设初始化机制
@@ -226,10 +271,16 @@ return (ax, ay, current_z, angle)
 - 装甲板 ID 切换次数 `>= 2`
 - 总更新次数 `>= 100`
 
-#### 噪声矩阵自适应
+#### 噪声矩阵
 
-- **R（观测噪声）**：随距离二次放大 `dist_scale = 1 + k * d²`；切换装甲板时 yaw 噪声 × `r_yaw_adaptive_factor`
-- **Q（过程噪声）**：支持 `adaptive_tracking` 模式，使用 `updateAdaptiveQ` 进行在线 Q 估计
+- **Q（过程噪声）**：CWNA 模型，由 `sigma_pos`（加速度标准差）和 `sigma_yaw`（角加速度标准差）推导，含位置-速度交叉项
+- **R（观测噪声）**：球坐标对角阵 `diag(r_range*(1+k*d²), r_angle, r_angle, r_yaw*(1+k*cos²(va)))`
+  - 距离噪声随距离平方增长（PnP 深度误差特性）
+  - 方位角/俯仰角噪声近似常数（像素精度决定）
+  - yaw 噪声随 viewing_angle 自适应（正对时放大，解决 PnP 几何退化）
+  - 切换装甲板时 yaw 噪声 × `r_yaw_adaptive_factor`
+- **Mahalanobis 门限**：`mahalanobis_thresh`（默认 15.0），用于异常观测拒绝
+- 支持 `adaptive_tracking` 模式（Sage-Husa 在线 Q 估计）
 
 #### 收敛 / 发散判断
 
@@ -256,22 +307,29 @@ return (ax, ay, current_z, angle)
 | 5 | `r` | 装甲板半径 |
 | 6 | `h` | 相邻装甲板高度差 |
 
-#### 过程模型 `f(x, dt)`（纯旋转模型）
+#### 过程模型 `f(x, dt)`（纯旋转 CWNA）
 
 ```
 yaw += v_yaw * dt    # 归一化到 [-π, π]
 # 其余分量保持不变（cx/cy/cz/v_yaw/r/h 不变）
 ```
 
-#### 观测模型 `h(x, id)`（id = 0..2，按 120° 间隔分布）
+位置 Q 为随机游走（`sigma_pos² * dt`），yaw-v_yaw 对使用 CWNA 交叉项。
+
+#### 观测模型 `h(x, id)`（id = 0..2，按 120° 间隔，球坐标输出）
 
 ```
 ANGULAR_OFFSET = 2π/3
-angle = yaw + id * ANGULAR_OFFSET    # 归一化
+angle = yaw + id * ANGULAR_OFFSET
 ax = cx - r * cos(angle)
 ay = cy - r * sin(angle)
 az = cz - id * h
-return (ax, ay, az, angle)
+
+# 转球坐标
+range     = sqrt(ax² + ay² + az²)
+azimuth   = atan2(ay, ax)
+elevation = asin(az / range)
+return (range, azimuth, elevation, angle)
 ```
 
 #### 三假设初始化机制
