@@ -82,7 +82,11 @@ private:
     double r_range_, r_range_k_;
     double r_angle_;
     double r_yaw_, r_yaw_adaptive_factor_, r_yaw_viewing_k_;
-    
+
+    // Outlier rejection & initial covariance
+    double mahalanobis_thresh_;
+    double p0_pos_, p0_yaw_, p0_omega_, p0_geo_;
+
     // Convergence
     int min_update_count_;
     double max_pos_cov_, max_yaw_cov_;

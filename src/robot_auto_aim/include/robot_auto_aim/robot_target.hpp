@@ -31,6 +31,12 @@ public:
         r_yaw_viewing_k_ = params.r_yaw_viewing_k;
         adaptive_tracking_ = params.adaptive_tracking;
         q_alpha_ = params.q_alpha;
+        mahalanobis_thresh_ = params.mahalanobis_thresh;
+        p0_pos_ = params.p0_pos;
+        p0_vel_ = params.p0_vel;
+        p0_yaw_ = params.p0_yaw;
+        p0_omega_ = params.p0_omega;
+        p0_geo_ = params.p0_geo;
         min_update_count_ = params.min_update_count;
         max_pos_cov_ = params.max_pos_cov;
         max_yaw_cov_ = params.max_yaw_cov;
@@ -103,6 +109,10 @@ private:
     double r_range_, r_range_k_;     // Range noise: r_range * (1 + r_range_k * range²)
     double r_angle_;                 // Azimuth/elevation noise (constant)
     double r_yaw_, r_yaw_adaptive_factor_, r_yaw_viewing_k_;
+
+    // Outlier rejection & initial covariance
+    double mahalanobis_thresh_;
+    double p0_pos_, p0_vel_, p0_yaw_, p0_omega_, p0_geo_;
     
     // Convergence
     int min_update_count_;

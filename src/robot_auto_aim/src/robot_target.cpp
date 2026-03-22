@@ -9,6 +9,8 @@ namespace robot_auto_aim {
           update_count_(0), sigma_pos_(20.0), sigma_yaw_(2.0), q_geo_(0.0001),
           r_range_(0.01), r_range_k_(0.5), r_angle_(0.0003),
           r_yaw_(0.05), r_yaw_adaptive_factor_(50.0), r_yaw_viewing_k_(10.0),
+          mahalanobis_thresh_(15.0),
+          p0_pos_(0.1), p0_vel_(10.0), p0_yaw_(0.5), p0_omega_(100.0), p0_geo_(0.1),
           min_update_count_(5), max_pos_cov_(3.0), max_yaw_cov_(1.0),
           adaptive_tracking_(false), q_alpha_(0.1) {
         for (int i = 0; i < 2; ++i) {
@@ -28,15 +30,17 @@ namespace robot_auto_aim {
         last_armor_ids_[1] = 0;
 
         Eigen::Matrix<double, STATE_DIM, STATE_DIM> P0 = Eigen::Matrix<double, STATE_DIM, STATE_DIM>::Identity();
-        P0.block<6, 6>(0, 0) *= 0.1;
-        P0(1, 1) = 10.0;
-        P0(3, 3) = 10.0;
-        P0(5, 5) = 10.0;
-        P0(6, 6) = 0.5;
-        P0(7, 7) = 100.0;
-        P0(8, 8) = 0.1;
-        P0(9, 9) = 0.1;
-        P0(10, 10) = 0.1;
+        P0(0, 0) = p0_pos_;   // cx
+        P0(1, 1) = p0_vel_;   // vx
+        P0(2, 2) = p0_pos_;   // cy
+        P0(3, 3) = p0_vel_;   // vy
+        P0(4, 4) = p0_pos_;   // cz
+        P0(5, 5) = p0_vel_;   // vz
+        P0(6, 6) = p0_yaw_;   // yaw
+        P0(7, 7) = p0_omega_; // omega
+        P0(8, 8) = p0_geo_;   // r
+        P0(9, 9) = p0_geo_;   // l
+        P0(10, 10) = p0_geo_; // h
 
         if (init_geo.r > 1e-3) {
             confirmation_state_ = ConfirmationState::CONFIRMING;
@@ -195,7 +199,7 @@ namespace robot_auto_aim {
                 auto h_func = [this, best_id](const Eigen::Matrix<double, STATE_DIM, 1> &x_in) {
                     return this->h(x_in, best_id);
                 };
-                if (ukfs_[k].update<MEAS_DIM>(z, h_func, R, normalize_meas, normalize_state, 15.0)) {
+                if (ukfs_[k].update<MEAS_DIM>(z, h_func, R, normalize_meas, normalize_state, mahalanobis_thresh_)) {
                     any_success = true;
                 }
                 last_armor_ids_[k] = best_id;
@@ -249,11 +253,11 @@ namespace robot_auto_aim {
                 Q_base(7, 7) = sy2 * nom_dt;
                 Q_base(8, 8) = Q_base(9, 9) = Q_base(10, 10) = q_geo_ * nom_dt;
                 if (ukfs_[best_ukf_idx_].template updateAdaptiveQ<MEAS_DIM>(z, h_func, R, Q_adaptive_, Q_base, q_alpha_,
-                                                                   normalize_meas, normalize_state, 15.0)) {
+                                                                   normalize_meas, normalize_state, mahalanobis_thresh_)) {
                     any_success = true;
                 }
             } else {
-                if (ukfs_[best_ukf_idx_].template update<MEAS_DIM>(z, h_func, R, normalize_meas, normalize_state, 15.0)) {
+                if (ukfs_[best_ukf_idx_].template update<MEAS_DIM>(z, h_func, R, normalize_meas, normalize_state, mahalanobis_thresh_)) {
                     any_success = true;
                 }
             }

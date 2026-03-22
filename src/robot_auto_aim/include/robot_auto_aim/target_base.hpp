@@ -45,6 +45,16 @@ struct TargetParams {
     bool adaptive_tracking;
     double q_alpha;
 
+    // Outlier rejection
+    double mahalanobis_thresh;   // Chi-square threshold for Mahalanobis gating (4 DoF: 9.49=p0.05, 15.0=p0.005)
+
+    // Initial covariance P0
+    double p0_pos;               // Position initial variance
+    double p0_vel;               // Velocity initial variance (RobotTarget only)
+    double p0_yaw;               // Yaw initial variance
+    double p0_omega;             // Angular velocity initial variance
+    double p0_geo;               // Geometric parameters (r, l, h) initial variance
+
     // Convergence
     int min_update_count;
     double max_pos_cov;

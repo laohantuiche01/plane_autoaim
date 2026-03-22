@@ -13,6 +13,8 @@ namespace robot_auto_aim {
           sigma_pos_(0.1), sigma_yaw_(0.3), q_geo_(0.0001),
           r_range_(0.01), r_range_k_(0.5), r_angle_(0.0003),
           r_yaw_(0.05), r_yaw_adaptive_factor_(50.0), r_yaw_viewing_k_(10.0),
+          mahalanobis_thresh_(15.0),
+          p0_pos_(0.1), p0_yaw_(0.5), p0_omega_(10.0), p0_geo_(0.1),
           min_update_count_(5), max_pos_cov_(2.0), max_yaw_cov_(1.0),
           adaptive_tracking_(false), q_alpha_(0.1) {
         for (int i = 0; i < 3; ++i) {
@@ -34,11 +36,13 @@ namespace robot_auto_aim {
         double h_init = (init_geo.h > 0) ? init_geo.h : 0.102; // Initial guess for height difference
 
         Eigen::Matrix<double, STATE_DIM, STATE_DIM> P0 = Eigen::Matrix<double, STATE_DIM, STATE_DIM>::Identity();
-        P0.block<3, 3>(0, 0) *= 0.1; // cx, cy, cz
-        P0(3, 3) = 0.5; // yaw
-        P0(4, 4) = 10.0; // v_yaw
-        P0(5, 5) = 0.1; // r
-        P0(6, 6) = 0.01; // h
+        P0(0, 0) = p0_pos_;   // cx
+        P0(1, 1) = p0_pos_;   // cy
+        P0(2, 2) = p0_pos_;   // cz
+        P0(3, 3) = p0_yaw_;   // yaw
+        P0(4, 4) = p0_omega_; // v_yaw
+        P0(5, 5) = p0_geo_;   // r
+        P0(6, 6) = p0_geo_;   // h
 
         // Initialize 3 UKFs with 3 different hypotheses for the first armor ID
         for (int k = 0; k < 3; ++k) {
@@ -171,7 +175,7 @@ namespace robot_auto_aim {
                     return this->h(x_in, best_id);
                 };
 
-                bool success = ukfs_[k].update<MEAS_DIM>(z, h_func, R, normalize_meas, normalize_state, 15.0);
+                bool success = ukfs_[k].update<MEAS_DIM>(z, h_func, R, normalize_meas, normalize_state, mahalanobis_thresh_);
                 if (success) {
                     last_armor_ids_[k] = best_id;
                     any_success = true;
@@ -219,7 +223,7 @@ namespace robot_auto_aim {
                 return this->h(x_in, best_id);
             };
 
-            any_success = ukfs_[best_ukf_idx_].update<MEAS_DIM>(z, h_func, R, normalize_meas, normalize_state, 15.0);
+            any_success = ukfs_[best_ukf_idx_].update<MEAS_DIM>(z, h_func, R, normalize_meas, normalize_state, mahalanobis_thresh_);
             if (any_success) {
                 last_armor_ids_[best_ukf_idx_] = best_id;
             }
@@ -244,6 +248,11 @@ namespace robot_auto_aim {
         r_yaw_viewing_k_ = params.r_yaw_viewing_k;
         adaptive_tracking_ = params.adaptive_tracking;
         q_alpha_ = params.q_alpha;
+        mahalanobis_thresh_ = params.mahalanobis_thresh;
+        p0_pos_ = params.p0_pos;
+        p0_yaw_ = params.p0_yaw;
+        p0_omega_ = params.p0_omega;
+        p0_geo_ = params.p0_geo;
         min_update_count_ = params.min_update_count;
         max_pos_cov_ = params.max_pos_cov;
         max_yaw_cov_ = params.max_yaw_cov;

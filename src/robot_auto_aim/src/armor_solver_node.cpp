@@ -38,6 +38,12 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
         params.r_yaw_viewing_k = declare_parameter(prefix + ".r_yaw_viewing_k", 10.0);
         params.adaptive_tracking = declare_parameter(prefix + ".adaptive_tracking", false);
         params.q_alpha = declare_parameter(prefix + ".q_alpha", 0.1);
+        params.mahalanobis_thresh = declare_parameter(prefix + ".mahalanobis_thresh", 15.0);
+        params.p0_pos = declare_parameter(prefix + ".p0_pos", 0.1);
+        params.p0_vel = declare_parameter(prefix + ".p0_vel", 10.0);
+        params.p0_yaw = declare_parameter(prefix + ".p0_yaw", 0.5);
+        params.p0_omega = declare_parameter(prefix + ".p0_omega", 100.0);
+        params.p0_geo = declare_parameter(prefix + ".p0_geo", 0.1);
         params.min_update_count = declare_parameter(prefix + ".min_update_count", 5);
         params.max_pos_cov = declare_parameter(prefix + ".max_pos_cov", 3.0);
         params.max_yaw_cov = declare_parameter(prefix + ".max_yaw_cov", 1.0);
@@ -87,6 +93,12 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
                 else if (key == "r_yaw_viewing_k") params.r_yaw_viewing_k = param.as_double();
                 else if (key == "adaptive_tracking") params.adaptive_tracking = param.as_bool();
                 else if (key == "q_alpha") params.q_alpha = param.as_double();
+                else if (key == "mahalanobis_thresh") params.mahalanobis_thresh = param.as_double();
+                else if (key == "p0_pos") params.p0_pos = param.as_double();
+                else if (key == "p0_vel") params.p0_vel = param.as_double();
+                else if (key == "p0_yaw") params.p0_yaw = param.as_double();
+                else if (key == "p0_omega") params.p0_omega = param.as_double();
+                else if (key == "p0_geo") params.p0_geo = param.as_double();
                 else if (key == "min_update_count") params.min_update_count = param.as_int();
                 else if (key == "max_pos_cov") params.max_pos_cov = param.as_double();
                 else if (key == "max_yaw_cov") params.max_yaw_cov = param.as_double();
