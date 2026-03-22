@@ -38,7 +38,6 @@ def launch_setup(context, *args, **kwargs):
         ],
         remappings=[
             ('image', '/image_raw'),
-            ('camera', '/')
         ],
         output='screen'
     )
