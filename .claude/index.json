@@ -1,0 +1,228 @@
+{
+  "generated_at": "2026-03-22T16:05:13+00:00",
+  "project": "ckyf_vision",
+  "description": "基于 ROS 2 的机器人视觉自瞄系统",
+  "root_claude_md": "CLAUDE.md",
+  "scan_summary": {
+    "total_packages": 8,
+    "total_source_files_scanned": 38,
+    "coverage_estimate_percent": 85,
+    "truncated": false,
+    "ignored_dirs": [
+      "src/hik_camera_driver/cmake-build-debug",
+      "src/hik_camera_driver/cmake-build-release",
+      "src/robot_auto_aim/cmake-build-debug",
+      "src/robot_auto_aim/cmake-build-release",
+      "src/robot_auto_aim/cmake-build-relwithdebinfo"
+    ],
+    "ignored_reasons": "cmake-build-* 为 IDE 构建缓存目录，不含有效源码"
+  },
+  "modules": [
+    {
+      "name": "hik_camera_driver",
+      "path": "src/hik_camera_driver",
+      "claude_md": "src/hik_camera_driver/CLAUDE.md",
+      "language": "C++17",
+      "entry_files": [
+        "src/hik_camera_driver.cpp",
+        "src/hik_camera_driver_component_node.cpp",
+        "src/hik_camera_driver_node.cpp"
+      ],
+      "publishes": [
+        "image_raw (sensor_msgs/Image)",
+        "image_raw_info (sensor_msgs/CameraInfo)"
+      ],
+      "subscribes": [],
+      "external_deps": ["MVS SDK (/opt/MVS/)", "OpenCV"],
+      "coverage_gaps": []
+    },
+    {
+      "name": "robot_communication",
+      "path": "src/robot_communication",
+      "claude_md": "src/robot_communication/CLAUDE.md",
+      "language": "C++20",
+      "entry_files": [
+        "src/robot_communication_node.cpp",
+        "include/robot_communication/robot_communication.h"
+      ],
+      "publishes": [
+        "/robot/gimbal (robot_interfaces/Gimbal)",
+        "/robot/mode (robot_interfaces/Mode)",
+        "/robot/gimbal_transform (geometry_msgs/TransformStamped)",
+        "TF: odom->gimbal_link, gimbal_link->camera_optical_frame"
+      ],
+      "subscribes": [
+        "/robot/aim (robot_interfaces/Aim)"
+      ],
+      "serial_protocol": {
+        "device": "/dev/ttyACM0",
+        "baud_rate": 4000000,
+        "rx_frame_ids": ["0x14 (gimbal+mode)", "0x11 (imu)", "0x12 (wheel)"],
+        "tx_frame_ids": ["0x81 (aim command)"]
+      },
+      "coverage_gaps": []
+    },
+    {
+      "name": "robot_interfaces",
+      "path": "src/robot_interfaces",
+      "claude_md": "src/robot_interfaces/CLAUDE.md",
+      "language": "ROS IDL",
+      "entry_files": [],
+      "messages": [
+        "Aim", "Armor", "Armors", "Gimbal", "Mode",
+        "TargetState", "TargetTrajectory", "TargetTrajectoryPoint",
+        "Measurement", "BallisticsDebug",
+        "DebugLight", "DebugLights", "DebugArmor", "DebugArmors"
+      ],
+      "services": [],
+      "coverage_gaps": []
+    },
+    {
+      "name": "robot_utils",
+      "path": "src/robot_utils",
+      "claude_md": "src/robot_utils/CLAUDE.md",
+      "language": "C++20",
+      "entry_files": [
+        "include/robot_utils/ukf.hpp",
+        "include/robot_utils/math_utils.hpp",
+        "include/robot_utils/pnp_solver.hpp",
+        "include/robot_utils/savitzky_golay.hpp",
+        "include/robot_utils/url_resolver.hpp"
+      ],
+      "publishes": [],
+      "subscribes": [],
+      "coverage_gaps": []
+    },
+    {
+      "name": "robot_auto_aim",
+      "path": "src/robot_auto_aim",
+      "claude_md": "src/robot_auto_aim/CLAUDE.md",
+      "language": "C++20",
+      "entry_files": [
+        "src/armor_detector_node.cpp",
+        "src/armor_solver_node.cpp",
+        "src/armor_detector.cpp",
+        "src/armor_pose_estimator.cpp",
+        "src/tracker.cpp",
+        "src/robot_target.cpp",
+        "src/outpost_target.cpp"
+      ],
+      "nodes": [
+        {
+          "name": "ArmorDetectorNode",
+          "plugin": "robot_auto_aim::ArmorDetectorNode",
+          "lifecycle": true,
+          "publishes": [
+            "armor_detector/armors",
+            "armor_detector/markers",
+            "armor_detector/debug_*",
+            "armor_detector/binary_img",
+            "armor_detector/number_img",
+            "armor_detector/result_img"
+          ],
+          "subscribes": ["image_raw", "/image_raw_info"]
+        },
+        {
+          "name": "ArmorSolverNode",
+          "plugin": "robot_auto_aim::ArmorSolverNode",
+          "lifecycle": true,
+          "publishes": [
+            "armor_solver/target_state",
+            "armor_solver/trajectory",
+            "armor_solver/markers",
+            "armor_solver/measurement",
+            "armor_solver/debug_image"
+          ],
+          "subscribes": ["armor_detector/armors", "image_raw"]
+        }
+      ],
+      "ukf_models": {
+        "robot": "11D state: [cx,vx,cy,vy,cz,vz,yaw,omega,r,l,h]",
+        "outpost": "7D state: [cx,cy,cz,yaw,omega,r,h] x3 parallel hypothesis"
+      },
+      "model_files": ["model/lenet.onnx", "model/label.txt"],
+      "coverage_gaps": ["tracker.hpp 和 target_base.hpp 仅读取头文件声明，未深度扫描实现细节"]
+    },
+    {
+      "name": "robot_ballistics",
+      "path": "src/robot_ballistics",
+      "claude_md": "src/robot_ballistics/CLAUDE.md",
+      "language": "C++",
+      "entry_files": [
+        "src/ballistics_node.cpp",
+        "src/ballistics_calculator.cpp"
+      ],
+      "nodes": [
+        {
+          "name": "BallisticsNode",
+          "plugin": "robot_ballistics::BallisticsNode",
+          "lifecycle": false,
+          "publishes": [
+            "/robot/aim",
+            "/ballistics/debug",
+            "/ballistics/trajectory_marker"
+          ],
+          "subscribes": ["armor_solver/trajectory"]
+        }
+      ],
+      "coverage_gaps": []
+    },
+    {
+      "name": "robot_manager",
+      "path": "src/robot_manager",
+      "claude_md": "src/robot_manager/CLAUDE.md",
+      "language": "C++",
+      "entry_files": ["src/manager_node.cpp"],
+      "nodes": [
+        {
+          "name": "ManagerNode",
+          "plugin": "robot_manager::ManagerNode",
+          "lifecycle": false,
+          "subscribes": ["/robot/mode"],
+          "calls_services": [
+            "armor_detector/change_state",
+            "armor_detector/get_state",
+            "armor_solver/change_state",
+            "armor_solver/get_state"
+          ]
+        }
+      ],
+      "coverage_gaps": []
+    },
+    {
+      "name": "robot_bringup",
+      "path": "src/robot_bringup",
+      "claude_md": "src/robot_bringup/CLAUDE.md",
+      "language": "Python (Launch)",
+      "entry_files": [
+        "launch/vision.launch.py",
+        "launch/vision_bag.launch.py",
+        "launch/camera_calibration.launch.py"
+      ],
+      "config_files": [
+        "config/default/params.yaml",
+        "config/infantry_3/params.yaml",
+        "config/infantry_4/params.yaml",
+        "config/sentry/params.yaml"
+      ],
+      "coverage_gaps": []
+    }
+  ],
+  "tf_tree": {
+    "frames": ["odom", "gimbal_link", "camera_optical_frame"],
+    "publisher": "robot_communication",
+    "dynamic_tf": "odom->gimbal_link (from serial 0x14 gimbal angle)",
+    "static_tf": "gimbal_link->camera_optical_frame (from camera_x/y/z/roll/pitch/yaw params)"
+  },
+  "topic_graph_summary": {
+    "image_pipeline": "hik_camera_driver -> image_raw -> ArmorDetectorNode -> armor_detector/armors -> ArmorSolverNode -> armor_solver/trajectory -> BallisticsNode -> /robot/aim -> robot_communication -> [serial 0x81]",
+    "tf_pipeline": "[serial 0x14] -> robot_communication -> TF tree -> ArmorDetectorNode & ArmorSolverNode & BallisticsNode",
+    "mode_pipeline": "[serial 0x14] -> robot_communication -> /robot/mode -> robot_manager -> lifecycle services -> ArmorDetectorNode/ArmorSolverNode"
+  },
+  "next_scan_recommendations": [
+    "robot_auto_aim/src/tracker.cpp 中的状态机细节（LOST/DETECTING/TRACKING/TEMP_LOST 转换条件）",
+    "robot_auto_aim/src/robot_target.cpp 和 outpost_target.cpp 中的 UKF 函数定义",
+    "robot_bringup/config/infantry_3、infantry_4、sentry 与 default 的参数差异对比",
+    "docs/ 目录下其余文档（ukf_documentation.md、tuning_guide.md）"
+  ]
+}
