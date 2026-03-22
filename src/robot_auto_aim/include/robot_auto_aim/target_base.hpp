@@ -61,6 +61,7 @@ public:
 
     // Getters
     virtual Eigen::VectorXd getState() const = 0;
+    virtual Eigen::VectorXd getMeasurement() const = 0;
     virtual Eigen::MatrixXd getCovariance() const = 0;
     virtual const std::string& getName() const = 0;
     virtual ArmorType getType() const = 0;

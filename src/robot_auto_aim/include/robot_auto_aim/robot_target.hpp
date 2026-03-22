@@ -52,6 +52,7 @@ public:
 
     // Getters
     Eigen::VectorXd getState() const override { return ukfs_[best_ukf_idx_].getState(); }
+    Eigen::VectorXd getMeasurement() const override { return measurement_; }
     Eigen::MatrixXd getCovariance() const override { return ukfs_[best_ukf_idx_].getCovariance(); }
     const std::string& getName() const override { return name_; }
     ArmorType getType() const override { return type_; }
@@ -74,6 +75,7 @@ private:
     Eigen::Vector4d h(const Eigen::VectorXd& x, int id) const;
 
     robot_utils::UKF<STATE_DIM> ukfs_[2];
+    Eigen::VectorXd measurement_;
     double accumulated_errors_[2];
     int best_ukf_idx_;
     ConfirmationState confirmation_state_;

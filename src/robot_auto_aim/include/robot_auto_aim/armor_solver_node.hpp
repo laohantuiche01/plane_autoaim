@@ -21,6 +21,7 @@
 #include "robot_interfaces/msg/aim.hpp"
 #include "robot_interfaces/msg/target_state.hpp"
 #include "robot_interfaces/msg/target_trajectory.hpp"
+#include "robot_interfaces/msg/measurement.hpp"
 #include "robot_ballistics/ballistics_calculator.hpp"
 #include "robot_utils/math_utils.hpp"
 
@@ -79,6 +80,7 @@ private:
     rclcpp::Subscription<robot_interfaces::msg::Armors>::SharedPtr armors_sub_;
     std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<robot_interfaces::msg::Aim>> aim_pub_;
     std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<robot_interfaces::msg::TargetState>> target_state_pub_;
+    std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<robot_interfaces::msg::Measurement>> measurement_pub_;
     std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<visualization_msgs::msg::MarkerArray>> marker_pub_;
     std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<robot_interfaces::msg::TargetTrajectory>> trajectory_pub_;
 

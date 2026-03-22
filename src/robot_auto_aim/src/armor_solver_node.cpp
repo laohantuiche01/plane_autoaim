@@ -253,10 +253,27 @@ void ArmorSolverNode::armorsCallback(const robot_interfaces::msg::Armors::Shared
     }
 
     // Sensor update ONLY
-    tracker_->track(detector_armors, timestamp);
+    std::shared_ptr<TargetBase> target = tracker_->track(detector_armors, timestamp);
+
+    if (debug_) {
+        robot_interfaces::msg::Measurement measurement;
+        measurement.header.stamp = timestamp;
+        measurement.header.frame_id = odom_frame_;
+        if (target) {
+            Eigen::VectorXd target_measurement = target->getMeasurement();
+            if (target_measurement.size() >= 4) {
+                measurement.x = target_measurement[0];
+                measurement.y = target_measurement[1];
+                measurement.z = target_measurement[2];
+                measurement.yaw = target_measurement[3];
+            }
+        }
+        measurement_pub_->publish(measurement);
+    }
 
     armors_msg_count_++;
     auto now = this->now();
+    if (now < last_armors_fps_time_) last_armors_fps_time_ = now;
     if ((now - last_armors_fps_time_).seconds() >= 5.0) {
         RCLCPP_INFO(this->get_logger(), "Armor Solver - Armors Input FPS: %.2f", armors_msg_count_ / 5.0);
         armors_msg_count_ = 0;
@@ -593,6 +610,8 @@ void ArmorSolverNode::updateTrackerParams() {
 void ArmorSolverNode::createDebugPublishers() {
     debug_img_pub_ = this->create_publisher<sensor_msgs::msg::Image>("armor_solver/debug_image", rclcpp::SensorDataQoS());
     debug_img_pub_->on_activate();
+    measurement_pub_ = this->create_publisher<robot_interfaces::msg::Measurement>("armor_solver/measurement", rclcpp::SensorDataQoS());
+    measurement_pub_->on_activate();
 
     cam_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
         "/image_raw_info", rclcpp::SensorDataQoS(),
@@ -613,6 +632,10 @@ void ArmorSolverNode::destroyDebugPublishers() {
         debug_img_pub_->on_deactivate();
         debug_img_pub_.reset();
     }
+    if (measurement_pub_) {
+        measurement_pub_->on_deactivate();
+        measurement_pub_.reset();
+    }
     cam_info_sub_.reset();
     img_sub_.reset();
 }
@@ -621,6 +644,10 @@ void ArmorSolverNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPt
     if (!cam_info_ || !tracker_ || !tracker_->getTarget() || !debug_) return;
 
     auto now = this->now();
+    if (now < last_debug_img_time_) {
+        last_debug_img_time_ = now;
+        tracker_->reset();
+    }
     if ((now - last_debug_img_time_).seconds() < (1.0 / debug_img_freq_)) return;
     last_debug_img_time_ = now;
 

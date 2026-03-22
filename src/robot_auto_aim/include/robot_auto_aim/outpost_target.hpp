@@ -31,6 +31,7 @@ public:
 
     // Getters
     Eigen::VectorXd getState() const override { return ukfs_[best_ukf_idx_].getState(); }
+    Eigen::VectorXd getMeasurement() const override { return measurement_; }
     Eigen::MatrixXd getCovariance() const override { return ukfs_[best_ukf_idx_].getCovariance(); }
     const std::string& getName() const override { return name_; }
     ArmorType getType() const override { return type_; }
@@ -54,6 +55,7 @@ private:
 
     // 3 parallel UKFs for 3 hypotheses (first armor is highest, middle, or lowest)
     robot_utils::UKF<STATE_DIM> ukfs_[3];
+    Eigen::VectorXd measurement_;
     double accumulated_errors_[3];
     std::set<int> observed_ids_[3];
     int last_armor_ids_[3];
