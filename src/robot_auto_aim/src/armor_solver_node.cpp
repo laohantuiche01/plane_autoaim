@@ -428,7 +428,10 @@ void ArmorSolverNode::timerCallback() {
                     }
 
                     Eigen::Vector3d res;
-                    if (blend && total_weight > 1e-6) {
+                    // Skip tangential blending at low omega: aim tracks same armor as true trajectory
+                    // (no rotation → no need for smooth face transitions, avoids aim-between-armors)
+                    bool low_omega = std::abs(v_yaw) < robot_params_.omega_freeze_thresh;
+                    if (blend && !low_omega && total_weight > 1e-6) {
                         res << blended_ax / total_weight, blended_ay / total_weight, blended_az / total_weight;
                     } else {
                         res << best_ax, best_ay, best_az;
