@@ -59,6 +59,9 @@ struct TargetParams {
     int min_update_count;
     double max_pos_cov;
     double max_yaw_cov;
+
+    // Observability protection
+    double omega_freeze_thresh;  // |omega| below this → scale down q_geo to freeze geometry params (rad/s)
 };
 
 struct GeometricParams {

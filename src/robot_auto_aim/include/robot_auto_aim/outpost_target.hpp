@@ -77,6 +77,7 @@ private:
     double sigma_pos_;   // Position drift std dev (random walk, no velocity states)
     double sigma_yaw_;   // Angular acceleration std dev (rad/s²), CWNA for yaw-omega
     double q_geo_;       // Geometric parameter random walk noise (r, h)
+    double omega_freeze_thresh_;  // |omega| below this → scale down q_geo (rad/s)
 
     // Spherical R parameters
     double r_range_, r_range_k_;

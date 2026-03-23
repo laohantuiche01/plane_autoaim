@@ -37,6 +37,7 @@ public:
         p0_yaw_ = params.p0_yaw;
         p0_omega_ = params.p0_omega;
         p0_geo_ = params.p0_geo;
+        omega_freeze_thresh_ = params.omega_freeze_thresh;
         min_update_count_ = params.min_update_count;
         max_pos_cov_ = params.max_pos_cov;
         max_yaw_cov_ = params.max_yaw_cov;
@@ -75,14 +76,18 @@ public:
 
 private:
     enum class ConfirmationState {
-        CONFIRMING,
-        CONFIRMED
+        CONFIRMING,         // Dual UKF, actively comparing hypotheses
+        CONFIRMING_FROZEN,  // Single UKF, low omega, paused comparison
+        CONFIRMED           // Hypothesis selected
     };
 
     // Cartesian armor position — for matching and getResolvedArmors()
     Eigen::Vector4d getArmorCartesian(const Eigen::VectorXd& x, int id) const;
     // Spherical observation — for UKF update
     Eigen::Vector4d h(const Eigen::VectorXd& x, int id) const;
+
+    // Re-derive paused hypothesis from active UKF when transitioning FROZEN → CONFIRMING
+    void rederivePausedHypothesis();
 
     robot_utils::UKF<STATE_DIM> ukfs_[2];
     Eigen::VectorXd measurement_;
@@ -104,6 +109,7 @@ private:
     double sigma_pos_;   // Linear acceleration std dev (m/s²)
     double sigma_yaw_;   // Angular acceleration std dev (rad/s²)
     double q_geo_;       // Geometric parameter random walk noise
+    double omega_freeze_thresh_;  // |omega| below this → scale down q_geo (rad/s)
 
     // Spherical R parameters
     double r_range_, r_range_k_;     // Range noise: r_range * (1 + r_range_k * range²)
