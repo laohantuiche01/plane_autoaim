@@ -60,6 +60,7 @@ armor_solver:
     ukf_beta: 2.0
     ukf_kappa: 0.0
     bullet_speed: 25.0
+    timer_frequency: 100.0
 
     robot:
       sigma_pos: 1.0
@@ -69,10 +70,11 @@ armor_solver:
       r_range_k: 0.5
       r_angle: 0.0003
       r_yaw: 0.05
-      r_yaw_adaptive_factor: 50.0
+      r_yaw_adaptive_factor: 1.0
       r_yaw_viewing_k: 10.0
       adaptive_tracking: false
       q_alpha: 0.1
+      omega_freeze_thresh: 0.5
 
     outpost:
       sigma_pos: 0.03
@@ -86,14 +88,15 @@ armor_solver:
       r_yaw_viewing_k: 10.0
       adaptive_tracking: false
       q_alpha: 0.1
+      omega_freeze_thresh: 0.5
 
     trajectory:
-      hit_delay_offset: 0.0
+      hit_delay_offset: 0.06
       aim_delay_offset: 0.0
       num_points: 11
       dt: 0.05
-      omega_low: 8.0
-      omega_high: 12.0
+      omega_low: 0.0
+      omega_high: 0.0
       switch_concentration: 40.0
 
 # Ballistics Node
@@ -101,16 +104,20 @@ ballistics_node:
   ros__parameters:
     bullet_speed: 25.0
     gimbal_frame: "gimbal_link"
-    true_angle_tolerance: 0.05
-    aim_angle_tolerance: 0.05
+    true_angle_tolerance: 0.03
+    aim_angle_tolerance: 0.03
     hit_yaw_offset: 0.0
     hit_pitch_offset: 0.0
-    aim_yaw_offset: 0.00872
-    aim_pitch_offset: -0.016
+    aim_yaw_offset: 0.000
+    aim_pitch_offset: 0.005236
     enable_sg_yaw: false
     sg_yaw_order: 2
     enable_sg_pitch: false
     sg_pitch_order: 2
+    tolerance_coefficient: 1.0
+    fire_delay: 0.0
+    use_analytical_w_yaw: false
+    analytical_w_yaw_alpha: 0.7
 
 # Manager
 robot_manager:
@@ -122,9 +129,9 @@ robot_manager:
 robot_communication:
   ros__parameters:
     serial_name: "/dev/ttyACM0"
-    camera_x: 0.0
+    camera_x: 0.16
     camera_y: 0.0
-    camera_z: 0.0
+    camera_z: 0.025
     camera_roll: 0.0
     camera_pitch: 0.0
     camera_yaw: 0.0

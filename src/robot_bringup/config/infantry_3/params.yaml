@@ -60,6 +60,7 @@ armor_solver:
     ukf_beta: 2.0
     ukf_kappa: 0.0
     bullet_speed: 25.0
+    timer_frequency: 100.0
 
     robot:
       sigma_pos: 0.3
@@ -73,6 +74,7 @@ armor_solver:
       r_yaw_viewing_k: 10.0
       adaptive_tracking: false
       q_alpha: 0.1
+      omega_freeze_thresh: 0.5
 
     outpost:
       sigma_pos: 0.03
@@ -86,6 +88,7 @@ armor_solver:
       r_yaw_viewing_k: 10.0
       adaptive_tracking: false
       q_alpha: 0.1
+      omega_freeze_thresh: 0.5
 
     trajectory:
       hit_delay_offset: 0.0
@@ -111,6 +114,10 @@ ballistics_node:
     sg_yaw_order: 2
     enable_sg_pitch: false
     sg_pitch_order: 2
+    tolerance_coefficient: 1.0
+    fire_delay: 0.0
+    use_analytical_w_yaw: false
+    analytical_w_yaw_alpha: 0.7
 
 # Manager
 robot_manager:

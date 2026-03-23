@@ -54,6 +54,7 @@ armor_detector:
 armor_solver:
   ros__parameters:
     bullet_speed: 25.0
+    timer_frequency: 100.0
     debug: true
     debug_img_freq: 60.0
     max_lost_duration: 1.0
@@ -75,6 +76,7 @@ armor_solver:
       r_yaw: 0.05
       r_yaw_adaptive_factor: 50.0
       r_yaw_viewing_k: 10.0
+      omega_freeze_thresh: 0.5
     robot:
       adaptive_tracking: false
       max_pos_cov: 2.2
@@ -91,6 +93,7 @@ armor_solver:
       r_yaw: 0.5
       r_yaw_adaptive_factor: 50.0
       r_yaw_viewing_k: 10.0
+      omega_freeze_thresh: 0.5
     trajectory:
       aim_delay_offset: 0.0
       dt: 0.05
@@ -119,6 +122,10 @@ ballistics_node:
     sg_yaw_order: 2
     enable_sg_pitch: false
     sg_pitch_order: 2
+    tolerance_coefficient: 1.0
+    fire_delay: 0.0
+    use_analytical_w_yaw: false
+    analytical_w_yaw_alpha: 0.7
 
 # Manager
 robot_manager:
