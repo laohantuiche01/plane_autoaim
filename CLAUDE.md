@@ -4,6 +4,7 @@
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| 1.2.1 | 2026-03-24 | **低速切向融合跳过**：当 \|omega\| < omega_freeze_thresh 时，aim_trajectory 使用 best armor（硬切换）而非加权融合，避免瞄准点落在装甲板之间 |
 | 1.2.0 | 2026-03-24 | **零角速度可观测性保护**：UKF 几何参数 omega 自适应噪声冻结、isDiverged 增强、双假设确认冻结、CONFIRMING_FROZEN 单UKF模式减少计算开销 |
 | 1.1.0 | 2026-03-23 | 四项火控改进：①动态开火容差（基于装甲板宽度/距离自适应）②击发延时补偿（success 标志前移）③UKF 定时器可配置④解析法+SG 加权融合前馈；修复弹道可视化终点判定 |
 | 1.0.0 | 2026-03-22 | 初始化 AI 上下文，自动生成全量文档 |
@@ -203,6 +204,22 @@ ros2 launch robot_bringup camera_calibration.launch.py
 - 修改参数时，优先编辑对应机型的 `robot_bringup/config/<robot_type>/params.yaml`，而非直接修改源码中的默认值
 - 不建议修改 `robot_interfaces` 中的消息定义，除非明确了解下游消费者的影响范围
 - 详细算法原理参考 `/home/mijiao/ckyf_vision/docs/system_architecture.md`
+
+### 最近改进 (v1.2.1) - 低速切向融合跳过
+
+低速纯平移场景中，双轨制轨迹的 aim_trajectory 通过 cos^n 加权融合多个装甲板位置来实现云台跟随的平顺性。然而，在过渡角（~45°）处，融合可能产生不在任何实际装甲板上的插值点，导致 aim 点偏离目标，影响火控精度。
+
+**改进内容**：
+
+当 `|omega| < omega_freeze_thresh`（默认 0.5 rad/s）时，aim_trajectory 采用硬切换（选择 best armor），与 true_trajectory 行为一致。物理合理性：无旋转时目标朝向不变，无需装甲板间平滑过渡，aim 应精确跟踪同一目标装甲板。
+
+- **参数**：`robot.omega_freeze_thresh`（默认 0.5 rad/s），同时用于几何参数冻结和轨迹融合跳过
+- **改动**：见 `armor_solver_node.cpp` 第 431-432 行，get_hit_pt lambda 中添加低速检查
+- **行为分区**：
+  ```
+  |omega| < 0.5   → 融合跳过，aim=best（硬切换），r_ratio=1.0
+  0.5 ≤ |omega|   → 正常融合，r_ratio 根据 omega_low/high 线性变化
+  ```
 
 ### 最近改进 (v1.2.0) - 零角速度可观测性保护
 

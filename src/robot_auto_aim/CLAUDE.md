@@ -109,8 +109,9 @@
 | `trajectory.num_points` | 11 | 轨迹序列点数（奇数） |
 | `trajectory.dt` | 0.05 | 轨迹点时间间隔 (s) |
 | `trajectory.omega_low/high` | 1.5/4.0 | 径向收缩转速阈值 (rad/s) |
-| `trajectory.switch_concentration` | 20.0 | 切向软切换余弦指数 n |
+| `trajectory.switch_concentration` | 20.0 | 切向软切换余弦指数 n（低速时不使用） |
 | `trajectory.hit/aim_delay_offset` | 0.0 | 击打/瞄准点时间偏置补偿 (s) |
+| `robot.omega_freeze_thresh` | 0.5 | 低速边界：\|omega\| < 此值时跳过切向融合，aim 使用 best armor |
 
 **robot/outpost 子参数（Q/R/P0/门限）**
 
@@ -190,6 +191,7 @@ colcon test --packages-select robot_auto_aim
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| 1.4.1 | 2026-03-24 | 低速切向融合跳过：当 \|omega\| < omega_freeze_thresh 时，aim_trajectory 使用 best armor（硬切换）而非加权融合，避免瞄准点落在装甲板之间 |
 | 1.4.0 | 2026-03-24 | 零角速度可观测性保护：①omega 自适应几何噪声冻结②isDiverged 增强③双假设确认冻结④CONFIRMING_FROZEN 状态+单UKF模式降低计算开销 |
 | 1.3.0 | 2026-03-23 | UKF 定时器频率参数化（timer_frequency）；TargetTrajectory 添加 armor_width 字段（用于动态容差） |
 | 1.2.0 | 2026-03-22 | 暴露 mahalanobis_thresh 和 P0 初始协方差参数 |
@@ -332,6 +334,16 @@ x_alt(10) = -x_active(10);              // h_alt = -h
 | 发散 `isDiverged()` | 位置协方差 `> 1000` 或目标距离 `> 400 m` 或 `r < 0.05 / r > 0.6` 或**几何协方差** `P(r/l/h) > 1.0 m²` |
 
 **发散检测增强**（v1.4.0）：新增几何协方差 `P(r)、P(l)、P(h) > 1.0 m²` 检测，捕获低可观测性下的缓慢漂移。
+
+#### 轨迹生成中的低速边界处理（v1.4.1）
+
+双轨制轨迹在生成时分别计算 `true_trajectory`（物理击打点，无切向融合）和 `aim_trajectory`（平滑瞄准点）。在低速纯平移场景（|omega| < omega_freeze_thresh ≈ 0.5 rad/s），切向融合可能在装甲板面过渡角（~45°）产生不在任何实际装甲板上的插值位置，导致 aim 点偏离目标。
+
+**改进**（v1.4.1）：当 `|omega| < omega_freeze_thresh` 时，aim_trajectory 亦采用硬切换（选择 best armor），与 true_trajectory 行为一致。物理含义：无旋转时目标不改变朝向，无需装甲板间平滑过渡，aim 应精确跟踪同一目标装甲板。
+
+**参数**：
+- `robot.omega_freeze_thresh`：低速边界阈值（默认 0.5 rad/s），同时用于几何参数冻结和轨迹融合跳过
+- `trajectory.switch_concentration`：切向软切换余弦指数 n（仅在 |omega| >= thresh 时启用）
 
 ---
 
