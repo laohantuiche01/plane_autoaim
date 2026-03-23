@@ -89,7 +89,7 @@
 | 话题 | 类型 | 说明 |
 |------|------|------|
 | `armor_solver/target_state` | `robot_interfaces/msg/TargetState` | UKF 滤波后的完整目标状态（11维/7维） |
-| `armor_solver/trajectory` | `robot_interfaces/msg/TargetTrajectory` | 双轨制预测轨迹（100Hz 定时器驱动） |
+| `armor_solver/trajectory` | `robot_interfaces/msg/TargetTrajectory` | 双轨制预测轨迹（定时器驱动，v1.1.0+ 含装甲板宽度） |
 | `armor_solver/markers` | `visualization_msgs/msg/MarkerArray` | 目标模型可视化 |
 | `armor_solver/measurement` | `robot_interfaces/msg/Measurement` | 原始观测值（debug 模式） |
 | `armor_solver/debug_image` | `sensor_msgs/msg/Image` | 投影调试图（debug 模式） |
@@ -102,6 +102,7 @@
 | `max_lost_duration` | 1.0 | 目标丢失超时时间 (s) |
 | `min_detect_count` | 5 | 初始化所需最小连续检测次数 |
 | `bullet_speed` | 25.0 | 子弹初速 (m/s)，用于飞行时间估算 |
+| `timer_frequency` | 100.0 | UKF 定时器频率 (Hz)，v1.1.0+ 可配置 |
 | `ukf_alpha/beta/kappa` | 0.001/2.0/0.0 | UKF 超参数 |
 | `robot.*` | 见下方参数表 | 机器人目标 UKF 参数（Q/R/P0/门限） |
 | `outpost.*` | 见下方参数表 | 前哨站目标 UKF 参数 |
@@ -189,6 +190,8 @@ colcon test --packages-select robot_auto_aim
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| 1.4.0 | 2026-03-24 | 零角速度可观测性保护：①omega 自适应几何噪声冻结②isDiverged 增强③双假设确认冻结④CONFIRMING_FROZEN 状态+单UKF模式降低计算开销 |
+| 1.3.0 | 2026-03-23 | UKF 定时器频率参数化（timer_frequency）；TargetTrajectory 添加 armor_width 字段（用于动态容差） |
 | 1.2.0 | 2026-03-22 | 暴露 mahalanobis_thresh 和 P0 初始协方差参数 |
 | 1.1.0 | 2026-03-22 | 观测模型重构为球坐标系，CWNA Q 矩阵，修复 isDiverged/CONFIRMING bug |
 | 1.0.0 | 2026-03-22 | 初始化文档，自动生成 |
@@ -267,13 +270,52 @@ return (range, azimuth, elevation, angle)
 | UKF[0] | 当前装甲板 = 偶数面（ID 0/2） | `init_geo.r` | `init_geo.l` | `init_geo.h` |
 | UKF[1] | 当前装甲板 = 奇数面（ID 1/3） | `r+l` | `-l` | `-h` |
 
-**确认机制**：每次 update 累积各假设误差，以下任一条件满足后选累积误差较小的 UKF 确认：
-- 装甲板 ID 切换次数 `>= 2`
-- 总更新次数 `>= 100`
+**确认机制**：
+
+CONFIRMING 状态通过三态有限状态机实现可观测性保护：
+
+```
+┌──────────────┐  |omega| < thresh  ┌──────────────────┐  |omega| >= thresh  ┌──────────────────┐
+│  CONFIRMING  │ ─────────────────> │ CONFIRMING_FROZEN│ ─────────────────>  │  CONFIRMING (恢复)│
+│ (双假设并行) │                    │  (单UKF模式)    │                    │    (重新派生)    │
+└──────────────┘                    └──────────────────┘                    └──────────────────┘
+       │                                                                             │
+       │─────────────────────────────────────────────────────────────────────────────┤
+       └─ (switch>=2 || update>=100) ──> ┌───────────┐
+                                         │ CONFIRMED │
+                                         └───────────┘
+```
+
+| 状态 | 运行 UKF | 累积误差 | 确认判定 | 目的 |
+|------|----------|---------|----------|------|
+| `CONFIRMING` | 两个 | 正常累积 | 允许 | 充分可观测，两个假设并行比较 |
+| `CONFIRMING_FROZEN` | 仅 best | 不累积 | 禁止 | 低速不可观测，暂停计算，保留较优假设 |
+| `CONFIRMED` | 仅 best | — | — | 假设确认，进入单 UKF 跟踪 |
+
+**转换逻辑**：
+- **CONFIRMING → CONFIRMING_FROZEN**：`|omega| < omega_freeze_thresh_`（默认 0.5 rad/s）时，选累积误差较小的 UKF，暂停另一个
+- **CONFIRMING_FROZEN → CONFIRMING**：`|omega| >= omega_freeze_thresh_` 时，从活跃 UKF 重新派生暂停假设，重置累积误差和 switch count（保证公平比较），恢复双 UKF
+- **CONFIRMING → CONFIRMED**：`switch_count >= 2 || update_count >= 100`（仅在 CONFIRMING 状态，FROZEN 中不允许）
+
+**重新派生算法**（FROZEN→CONFIRMING）：两个假设共享旋转中心 `(cx, cy, cz)` 和运动学 `(vx, vy, vz, yaw, omega)`，仅几何参数差异（90°旋转）：
+```cpp
+x_alt(8) = x_active(8) + x_active(9);  // r_alt = r + l
+x_alt(9) = -x_active(9);                // l_alt = -l
+x_alt(10) = -x_active(10);              // h_alt = -h
+```
+重置几何协方差 `P_alt(8..10, 8..10) = p0_geo_`，清除几何-运动学交叉项。
+
+**性能优化**：FROZEN 时仅运行一个 UKF，计算开销减少 ~50%。
 
 #### 噪声矩阵
 
-- **Q（过程噪声）**：CWNA 模型，由 `sigma_pos`（加速度标准差）和 `sigma_yaw`（角加速度标准差）推导，含位置-速度交叉项
+- **Q（过程噪声）**：
+  - 位置-速度对：CWNA 模型 `Q_pos_vel = σ² × [dt³/3, dt²/2; dt²/2, dt]`
+  - 角度-角速度对：CWNA 模型 `Q_yaw_omega = σ² × [dt³/3, dt²/2; dt²/2, dt]`
+  - **几何参数** `r, l, h`：简单随机游走，但 **omega 自适应缩放** `Q_geo = q_geo × min(1, |omega|/omega_freeze_thresh_) × dt`
+    - 当 `|omega| >= thresh` 时：完整的 q_geo，正常几何参数更新
+    - 当 `|omega| < thresh` 时：q_geo 线性缩小，防止几何与位置混淆导致漂移
+    - 物理意义：纯平移时几何参数不变，不应有随机游走；恢复旋转后参数可重新收敛
 - **R（观测噪声）**：球坐标对角阵 `diag(r_range*(1+k*d²), r_angle, r_angle, r_yaw*(1+k*cos²(va)))`
   - 距离噪声随距离平方增长（PnP 深度误差特性）
   - 方位角/俯仰角噪声近似常数（像素精度决定）
@@ -287,7 +329,9 @@ return (range, azimuth, elevation, angle)
 | 类型 | 条件 |
 |------|------|
 | 收敛 `isConverged()` | `update_count > min_update_count` 且位置协方差 `< max_pos_cov (3.0)` 且 yaw 协方差 `< max_yaw_cov (1.0)` |
-| 发散 `isDiverged()` | 位置协方差 `> 1000` 或目标距离 `> 400 m` 或 `r < 0.05 / r > 0.6` |
+| 发散 `isDiverged()` | 位置协方差 `> 1000` 或目标距离 `> 400 m` 或 `r < 0.05 / r > 0.6` 或**几何协方差** `P(r/l/h) > 1.0 m²` |
+
+**发散检测增强**（v1.4.0）：新增几何协方差 `P(r)、P(l)、P(h) > 1.0 m²` 检测，捕获低可观测性下的缓慢漂移。
 
 ---
 
@@ -315,6 +359,8 @@ yaw += v_yaw * dt    # 归一化到 [-π, π]
 ```
 
 位置 Q 为随机游走（`sigma_pos² * dt`），yaw-v_yaw 对使用 CWNA 交叉项。
+
+**几何参数 Q 自适应**（v1.4.0）：同 RobotTarget，`r、h` 随机游走过程噪声按 omega 自适应缩放，防止纯平移时参数漂移。
 
 #### 观测模型 `h(x, id)`（id = 0..2，按 120° 间隔，球坐标输出）
 
@@ -350,6 +396,8 @@ UKF[k]: yaw_init = armor.yaw - k * (2π/3)
 | 收敛 `isConverged()` | `update_count > min_update_count` 且位置协方差 `< 2.0` 且 yaw 协方差 `< 1.0` |
 | 发散 `isDiverged()` | 位置协方差 `> 100` 或目标距离 `> 40 m` 或 `r` 超出 [0.1, 0.5] 或 `h` 超出 [0.05, 0.2] |
 
+**备注**（v1.4.0）：OutpostTarget 三假设 UKF 不适用低速冻结优化（前哨站通常快速旋转，omega 始终较高）。
+
 ---
 
 ## 相关文件清单
@@ -365,8 +413,8 @@ UKF[k]: yaw_init = armor.yaw - k * (2π/3)
 | `src/light_corner_corrector.cpp` | PCA 灯条角点校正 |
 | `src/number_classifier.cpp` | ONNX 模型推理（数字分类） |
 | `src/tracker.cpp` | 目标跟踪器状态机实现 |
-| `src/robot_target.cpp` | 机器人目标 UKF 模型（11 维） |
-| `src/outpost_target.cpp` | 前哨站目标 UKF 模型（7 维，3 假设并行） |
+| `src/robot_target.cpp` | 机器人目标 UKF 模型（11 维，omega 自适应 q_geo，三态CONFIRMING） |
+| `src/outpost_target.cpp` | 前哨站目标 UKF 模型（7 维，3 假设并行，omega 自适应 q_geo） |
 | `include/robot_auto_aim/types.hpp` | Armor、Light 等核心数据类型 |
 | `include/robot_auto_aim/tracker.hpp` | Tracker 类声明 |
 | `include/robot_auto_aim/target_base.hpp` | TargetBase 抽象基类 |

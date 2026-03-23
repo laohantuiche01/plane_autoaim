@@ -6,10 +6,15 @@
 
 **弹道解算与火控判定节点**，负责将 `ArmorSolverNode` 生成的三维轨迹序列转换为云台电机可直接执行的绝对角度指令，并判定是否满足开火条件：
 
-- 接收双轨制预测轨迹（`TargetTrajectory`）
+- 接收双轨制预测轨迹（`TargetTrajectory`，v1.1.0+ 含装甲板宽度信息）
 - 对轨迹中每个点进行**抛物线弹道补偿**（考虑重力下坠，求解仰角 $\theta_{pitch}$）
 - 使用 **Savitzky-Golay 动态多项式拟合**对角度序列进行平滑，并提取中心时刻的精确角速度（前馈项）
-- 判定物理击打点与瞄准点是否同时在枪管容差圆内，生成 `success` 开火许可标志
+- **v1.1.0+ 改进**：
+  - 动态开火容差：根据装甲板半宽和距离自适应计算（`tolerance_coefficient`）
+  - 击发延时补偿：success 标志在轨迹时间序列中前移（`fire_delay`）
+  - 解析法+SG融合：将 3D 速度解析转换与角度 SG 滤波融合（`use_analytical_w_yaw`、`analytical_w_yaw_alpha`）
+  - 弹道可视化：终点判定改为目标距离（v1.1.0+）
+- 判定物理击打点与瞄准点是否同时在动态容差范围内，生成 `success` 开火许可标志
 - 将最终指令通过 `/robot/aim` 话题发布给 `robot_communication`
 
 ---
@@ -55,6 +60,10 @@
 | `sg_yaw_order` | 2 | SG 滤波多项式阶数（偏航） |
 | `enable_sg_pitch` | false | 是否对俯仰角启用 SG 滤波 |
 | `sg_pitch_order` | 2 | SG 滤波多项式阶数（俯仰） |
+| `tolerance_coefficient` | 1.0 | 动态容差系数 (v1.1.0+) |
+| `fire_delay` | 0.0 | 击发延时补偿 (s)，建议 0.01-0.05 (v1.1.0+) |
+| `use_analytical_w_yaw` | false | 使用解析法+SG融合计算 yaw 前馈 (v1.1.0+) |
+| `analytical_w_yaw_alpha` | 0.7 | 解析法权重，范围 [0, 1] (v1.1.0+) |
 
 ---
 
@@ -93,6 +102,7 @@ colcon build --packages-select robot_ballistics
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| 1.1.0 | 2026-03-23 | 四项火控改进：动态容差、击发延时补偿、解析法+SG融合前馈、弹道可视化终点修复；TargetTrajectory 添加 armor_width |
 | 1.0.0 | 2026-03-22 | 初始化文档，自动生成 |
 
 ---

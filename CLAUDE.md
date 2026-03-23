@@ -4,6 +4,8 @@
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| 1.2.0 | 2026-03-24 | **零角速度可观测性保护**：UKF 几何参数 omega 自适应噪声冻结、isDiverged 增强、双假设确认冻结、CONFIRMING_FROZEN 单UKF模式减少计算开销 |
+| 1.1.0 | 2026-03-23 | 四项火控改进：①动态开火容差（基于装甲板宽度/距离自适应）②击发延时补偿（success 标志前移）③UKF 定时器可配置④解析法+SG 加权融合前馈；修复弹道可视化终点判定 |
 | 1.0.0 | 2026-03-22 | 初始化 AI 上下文，自动生成全量文档 |
 
 ---
@@ -196,11 +198,77 @@ ros2 launch robot_bringup camera_calibration.launch.py
 
 - 本项目核心逻辑集中在 `robot_auto_aim` 包，尤其是 `armor_solver_node.cpp`（轨迹生成、UKF 调用）和 `armor_detector_node.cpp`（图像处理流水线）
 - UKF 实现位于 `robot_utils/include/robot_utils/ukf.hpp`（模板类，header-only）
-- 弹道计算核心在 `robot_ballistics/src/ballistics_calculator.cpp`
+- 弹道计算核心在 `robot_ballistics/src/ballistics_calculator.cpp` 和 `ballistics_node.cpp`
 - 串口协议定义在 `robot_communication/include/robot_communication/robot_message.h`
 - 修改参数时，优先编辑对应机型的 `robot_bringup/config/<robot_type>/params.yaml`，而非直接修改源码中的默认值
 - 不建议修改 `robot_interfaces` 中的消息定义，除非明确了解下游消费者的影响范围
 - 详细算法原理参考 `/home/mijiao/ckyf_vision/docs/system_architecture.md`
+
+### 最近改进 (v1.2.0) - 零角速度可观测性保护
+
+当目标处于纯平移状态（omega ≈ 0）时，UKF 的几何参数（r, l, h）存在可观测性退化：r 的变化与中心位置 cx 的变化在观测空间投影共线，无法独立区分。
+
+**改进内容**：
+
+**1. Omega 自适应几何噪声冻结** (`omega_freeze_thresh`)
+- 原理：当 `|omega| < thresh` 时，按 `min(1, |omega|/thresh)` 缩放 q_geo，防止低可观测条件下的几何参数漂移
+- 参数：`robot.omega_freeze_thresh` (默认 0.5 rad/s，对应极慢速旋转)
+- 实现：见 `robot_target.cpp` 第 124-131 行；`outpost_target.cpp` 第 99-106 行
+
+**2. isDiverged() 增强**
+- 新增几何协方差检测：`P(r)、P(l)、P(h) > 1.0 m²` 时判定发散
+- 捕获低可观测性下的缓慢漂移（单个阈值保护不足）
+- 实现：见 `robot_target.cpp` 第 361 行
+
+**3. 双假设确认冻结**
+- CONFIRMING 状态转换为三态有限状态机：CONFIRMING ↔ CONFIRMING_FROZEN ↔ CONFIRMED
+- `|omega| < thresh` 时进入 CONFIRMING_FROZEN，暂停累积误差和确认判定
+- 仅运行累积误差较小的 UKF，计算开销减少 ~50%
+- `|omega| >= thresh` 时恢复 CONFIRMING，从活跃 UKF 重新派生暂停假设，保证公平比较
+- 实现：见 `robot_target.cpp` 第 146-181 行（predict）、206-247 行（update）、363-388 行（rederivePausedHypothesis）
+
+**4. 状态机细节**
+```
+CONFIRMING (双假设并行) ──|omega|<0.5──> CONFIRMING_FROZEN (单UKF，计算少50%)
+                                  ↓
+                        重新派生暂停假设、重置误差
+                                  ↓
+                        ──|omega|≥0.5──> CONFIRMING (恢复对比)
+                                  │
+                                  └─ (switch≥2 || update≥100) ──> CONFIRMED
+```
+
+---
+
+### 最近改进 (v1.1.0) - 火控精度优化
+
+**1. 动态开火容差** (`tolerance_coefficient`)
+- 原理：容差 = `atan(装甲板半宽 / 距离) * 系数`，根据目标距离自适应
+- 参数：`ballistics_node.tolerance_coefficient` (默认 1.0)
+- 参考：见 `ballistics_node.cpp` 第 226-239 行
+
+**2. 击发延时补偿** (`fire_delay`)
+- 原理：success 标志在预测时间序列中前移 fire_delay 秒，为机械/通信延迟预留时间
+- 参数：`ballistics_node.fire_delay` (默认 0.0 s)，建议范围 0.01-0.05 s
+- 实现：见 `ballistics_node.cpp` 第 206-224 行的线性插值逻辑
+
+**3. UKF 定时器频率** (`timer_frequency`)
+- 原理：将 UKF 预测和轨迹生成的定时器频率从硬编码 100Hz 改为参数化
+- 参数：`armor_solver.timer_frequency` (默认 100.0 Hz)，可按机型调整
+- 实现：见 `armor_solver_node.cpp` 第 62-63 行
+
+**4. 解析法+SG 加权融合前馈** (`use_analytical_w_yaw`)
+- 原理：结合叉积法（从 3D 速度）和 SG 滤波（从角度序列）的优势
+- 参数：
+  - `ballistics_node.use_analytical_w_yaw` (默认 false，实验特性)
+  - `ballistics_node.analytical_w_yaw_alpha` (默认 0.7，解析法权重)
+- 稳定性特性：近距离平滑衰减、异常检测回退
+- 实现：见 `ballistics_node.cpp` 第 155-180 行
+
+**5. 弹道可视化改进**
+- 原理：终止条件改为目标距离，而非简单的高度 < 0
+- 修改：终止时间 = `target_distance * 1.2 / bullet_speed`
+- 实现：见 `ballistics_node.cpp` 第 294-315 行
 
 ---
 
