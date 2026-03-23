@@ -74,6 +74,7 @@ private:
     double trajectory_switch_concentration_;
 
     // Timer
+    double timer_frequency_;
     rclcpp::TimerBase::SharedPtr timer_;
     
     // Pub/Sub

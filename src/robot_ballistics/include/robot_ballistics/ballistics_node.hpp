@@ -54,6 +54,16 @@ private:
     bool enable_sg_pitch_;
     int sg_pitch_order_;
 
+    // 动态开火容差
+    double tolerance_coefficient_;
+
+    // 击发延时补偿
+    double fire_delay_;
+
+    // 解析法+SG融合前馈
+    bool use_analytical_w_yaw_;
+    double analytical_w_yaw_alpha_;
+
     // Parameters Callback
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_handle_;
 };

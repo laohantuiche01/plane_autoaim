@@ -47,6 +47,7 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
         params.min_update_count = declare_parameter(prefix + ".min_update_count", 5);
         params.max_pos_cov = declare_parameter(prefix + ".max_pos_cov", 3.0);
         params.max_yaw_cov = declare_parameter(prefix + ".max_yaw_cov", 1.0);
+        params.omega_freeze_thresh = declare_parameter(prefix + ".omega_freeze_thresh", 0.5);
     };
 
     declare_target_params("robot", robot_params_);
@@ -59,6 +60,7 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
 
     // Ballistics & Trajectory Params
     bullet_speed_ = declare_parameter("bullet_speed", 25.0);
+    timer_frequency_ = declare_parameter("timer_frequency", 100.0);
     hit_delay_offset_ = declare_parameter("trajectory.hit_delay_offset", 0.0);
     aim_delay_offset_ = declare_parameter("trajectory.aim_delay_offset", 0.0);
     trajectory_num_points_ = declare_parameter("trajectory.num_points", 11);
@@ -102,6 +104,7 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
                 else if (key == "min_update_count") params.min_update_count = param.as_int();
                 else if (key == "max_pos_cov") params.max_pos_cov = param.as_double();
                 else if (key == "max_yaw_cov") params.max_yaw_cov = param.as_double();
+                else if (key == "omega_freeze_thresh") params.omega_freeze_thresh = param.as_double();
                 else return false;
                 return true;
             };
@@ -150,8 +153,9 @@ ArmorSolverNode::CallbackReturn ArmorSolverNode::on_configure(const rclcpp_lifec
     marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("armor_solver/markers", 10);
     trajectory_pub_ = create_publisher<robot_interfaces::msg::TargetTrajectory>("armor_solver/trajectory", 10);
 
-    // Create timer for prediction and publication (100Hz)
-    timer_ = create_wall_timer(std::chrono::milliseconds(10), std::bind(&ArmorSolverNode::timerCallback, this));
+    // Create timer for prediction and publication
+    int timer_period_ms = static_cast<int>(std::round(1000.0 / timer_frequency_));
+    timer_ = create_wall_timer(std::chrono::milliseconds(timer_period_ms), std::bind(&ArmorSolverNode::timerCallback, this));
 
     return CallbackReturn::SUCCESS;
 }
@@ -363,6 +367,8 @@ void ArmorSolverNode::timerCallback() {
 
             robot_interfaces::msg::TargetTrajectory traj_msg;
             traj_msg.header = header;
+            traj_msg.armor_width = (target->getType() == ArmorType::SMALL)
+                ? SMALL_ARMOR_WIDTH : LARGE_ARMOR_WIDTH;
             
             int num_points = trajectory_num_points_ > 0 && trajectory_num_points_ % 2 != 0 ? trajectory_num_points_ : 11;
             int half_points = num_points / 2;

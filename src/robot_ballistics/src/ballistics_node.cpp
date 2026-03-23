@@ -22,6 +22,11 @@ BallisticsNode::BallisticsNode(const rclcpp::NodeOptions& options)
     enable_sg_pitch_ = this->declare_parameter("enable_sg_pitch", true);
     sg_pitch_order_ = this->declare_parameter("sg_pitch_order", 2);
 
+    tolerance_coefficient_ = this->declare_parameter("tolerance_coefficient", 1.0);
+    fire_delay_ = this->declare_parameter("fire_delay", 0.0);
+    use_analytical_w_yaw_ = this->declare_parameter("use_analytical_w_yaw", false);
+    analytical_w_yaw_alpha_ = this->declare_parameter("analytical_w_yaw_alpha", 0.7);
+
     tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
@@ -51,6 +56,10 @@ BallisticsNode::BallisticsNode(const rclcpp::NodeOptions& options)
                 else if (param.get_name() == "sg_yaw_order") sg_yaw_order_ = param.as_int();
                 else if (param.get_name() == "enable_sg_pitch") enable_sg_pitch_ = param.as_bool();
                 else if (param.get_name() == "sg_pitch_order") sg_pitch_order_ = param.as_int();
+                else if (param.get_name() == "tolerance_coefficient") tolerance_coefficient_ = param.as_double();
+                else if (param.get_name() == "fire_delay") fire_delay_ = param.as_double();
+                else if (param.get_name() == "use_analytical_w_yaw") use_analytical_w_yaw_ = param.as_bool();
+                else if (param.get_name() == "analytical_w_yaw_alpha") analytical_w_yaw_alpha_ = param.as_double();
             }
             return result;
         });
@@ -143,6 +152,33 @@ void BallisticsNode::trajectoryCallback(const robot_interfaces::msg::TargetTraje
         final_w_yaw = (dt > 0) ? (aim_yaw[center_idx+1] - aim_yaw[center_idx-1]) / (2 * dt) : 0.0;
     }
 
+    // 解析法+SG加权融合 yaw 前馈
+    if (use_analytical_w_yaw_) {
+        const auto& pt = msg->aim_trajectory[center_idx];
+        double gx = gimbal_to_odom.transform.translation.x;
+        double gy = gimbal_to_odom.transform.translation.y;
+        double rx = pt.x - gx;
+        double ry = pt.y - gy;
+        double r_sq = rx * rx + ry * ry;
+
+        constexpr double min_r_sq = 0.01;  // ~0.1m 距离
+        constexpr double max_diff = 2.0;   // rad/s 异常检测阈值
+
+        if (r_sq > min_r_sq) {
+            double analytical_w = (rx * pt.v_y - ry * pt.v_x) / r_sq;
+
+            // 异常检测：解析值与SG值偏差过大时回退
+            if (std::abs(analytical_w - final_w_yaw) < max_diff) {
+                // 近距离平滑衰减：r_sq 在 [min_r_sq, 2*min_r_sq] 范围内从0过渡到1
+                double blend = std::min(1.0, (r_sq - min_r_sq) / min_r_sq);
+                double alpha = analytical_w_yaw_alpha_ * blend;
+                final_w_yaw = alpha * analytical_w + (1.0 - alpha) * final_w_yaw;
+            }
+            // else: 异常情况保持 SG/差分结果
+        }
+        // else: 距离过近，保持 SG/差分结果
+    }
+
     if (enable_sg_pitch_ && sg_pitch_order_ < static_cast<int>(num_points)) {
         robot_utils::SavitzkyGolayFilter sg_pitch(num_points, sg_pitch_order_);
         auto result = sg_pitch.fit(times, aim_pitch, 0.0);
@@ -166,13 +202,46 @@ void BallisticsNode::trajectoryCallback(const robot_interfaces::msg::TargetTraje
 
     double aim_yaw_error = robot_utils::normalize_angle(current_yaw - final_aim_yaw);
     double aim_pitch_error = robot_utils::normalize_angle(current_pitch - final_aim_pitch);
-    double true_yaw_error = robot_utils::normalize_angle(current_yaw - true_yaw[center_idx]);
+
+    // 击发延时补偿：在 times 序列中按 fire_delay 偏移做线性插值
+    double delayed_true_yaw;
+    if (fire_delay_ > 1e-6 && num_points > 1) {
+        double dt = times[1] - times[0];
+        double float_idx = static_cast<double>(center_idx) + fire_delay_ / dt;
+        if (float_idx >= 0 && float_idx < static_cast<double>(num_points - 1)) {
+            int lo = static_cast<int>(std::floor(float_idx));
+            int hi = lo + 1;
+            double frac = float_idx - lo;
+            delayed_true_yaw = true_yaw[lo] * (1.0 - frac) + true_yaw[hi] * frac;
+        } else if (float_idx >= static_cast<double>(num_points - 1)) {
+            delayed_true_yaw = true_yaw[num_points - 1];
+        } else {
+            delayed_true_yaw = true_yaw[center_idx];
+        }
+    } else {
+        delayed_true_yaw = true_yaw[center_idx];
+    }
+    double true_yaw_error = robot_utils::normalize_angle(current_yaw - delayed_true_yaw);
+
+    // 动态开火容差：根据装甲板宽度和距离自适应计算
+    double effective_true_tolerance = true_angle_tolerance_;
+    double effective_aim_tolerance = aim_angle_tolerance_;
+    if (msg->armor_width > 1e-6) {
+        double dx_hit = msg->true_trajectory[center_idx].x - gimbal_to_odom.transform.translation.x;
+        double dy_hit = msg->true_trajectory[center_idx].y - gimbal_to_odom.transform.translation.y;
+        double dz_hit = msg->true_trajectory[center_idx].z - gimbal_to_odom.transform.translation.z;
+        double distance = std::sqrt(dx_hit * dx_hit + dy_hit * dy_hit + dz_hit * dz_hit);
+        if (distance > 1e-3) {
+            double dynamic_tolerance = std::atan(msg->armor_width * 0.5 / distance) * tolerance_coefficient_;
+            effective_true_tolerance = std::min(dynamic_tolerance, true_angle_tolerance_);
+            effective_aim_tolerance = std::min(dynamic_tolerance, aim_angle_tolerance_);
+        }
+    }
 
     bool success = false;
-    // Check if aim yaw, aim pitch, and true yaw are all within tolerance
-    if (std::abs(aim_yaw_error) < aim_angle_tolerance_ && 
-        std::abs(aim_pitch_error) < aim_angle_tolerance_ && 
-        std::abs(true_yaw_error) < true_angle_tolerance_) {
+    if (std::abs(aim_yaw_error) < effective_aim_tolerance &&
+        std::abs(aim_pitch_error) < effective_aim_tolerance &&
+        std::abs(true_yaw_error) < effective_true_tolerance) {
         success = true;
     }
 
@@ -226,16 +295,23 @@ void BallisticsNode::trajectoryCallback(const robot_interfaces::msg::TargetTraje
     double vy = bullet_speed_ * std::cos(current_pitch) * std::sin(current_yaw);
     double vz = bullet_speed_ * std::sin(current_pitch);
 
-    // Calculate trajectory points starting from the gimbal
-    for (double t = 0; t <= 2.0; t += 0.05) {
+    // 计算云台到击打点的距离，用于确定弹道绘制终点
+    double gx = gimbal_to_odom.transform.translation.x;
+    double gy = gimbal_to_odom.transform.translation.y;
+    double gz = gimbal_to_odom.transform.translation.z;
+    double tdx = msg->true_trajectory[center_idx].x - gx;
+    double tdy = msg->true_trajectory[center_idx].y - gy;
+    double tdz = msg->true_trajectory[center_idx].z - gz;
+    double target_dist = std::sqrt(tdx * tdx + tdy * tdy + tdz * tdz);
+    // 绘制到目标距离的 1.2 倍，留少量余量便于可视化
+    double max_time = (bullet_speed_ > 1e-3) ? (target_dist * 1.2 / bullet_speed_) : 2.0;
+
+    for (double t = 0; t <= max_time; t += 0.02) {
         geometry_msgs::msg::Point p;
-        p.x = gimbal_to_odom.transform.translation.x + vx * t;
-        p.y = gimbal_to_odom.transform.translation.y + vy * t;
-        p.z = gimbal_to_odom.transform.translation.z + vz * t - 0.5 * 9.8 * t * t;
+        p.x = gx + vx * t;
+        p.y = gy + vy * t;
+        p.z = gz + vz * t - 0.5 * 9.8 * t * t;
         marker.points.push_back(p);
-        
-        // Stop drawing if it hits the ground
-        if (p.z < 0.0) break;
     }
 
     marker_pub_->publish(marker);
