@@ -7,6 +7,7 @@ namespace robot_auto_aim {
         : best_ukf_idx_(0), confirmation_state_(ConfirmationState::CONFIRMED), armor_num_(4), priority_(0),
           last_time_(0), last_armor_ids_{0, 0},
           update_count_(0), sigma_pos_(20.0), sigma_yaw_(2.0), q_geo_(0.0001),
+          omega_freeze_thresh_(0.5),
           r_range_(0.01), r_range_k_(0.5), r_angle_(0.0003),
           r_yaw_(0.05), r_yaw_adaptive_factor_(50.0), r_yaw_viewing_k_(10.0),
           mahalanobis_thresh_(15.0),
@@ -120,8 +121,14 @@ namespace robot_auto_aim {
         // yaw-omega pair (indices 6, 7)
         Q(6, 6) = sy2 * dt3 / 3.0;  Q(6, 7) = sy2 * dt2 / 2.0;
         Q(7, 6) = sy2 * dt2 / 2.0;  Q(7, 7) = sy2 * dt;
-        // Geometric parameters (indices 8, 9, 10) - simple random walk
-        Q(8, 8) = Q(9, 9) = Q(10, 10) = q_geo_ * dt;
+        // Geometric parameters (indices 8, 9, 10) - omega-adaptive random walk
+        // When |omega| is small, geometry params have low observability (r mixes with cx/cy),
+        // so scale down q_geo to prevent unconstrained drift
+        double abs_omega = std::abs(ukfs_[best_ukf_idx_].getState()(7));
+        double omega_scale = (omega_freeze_thresh_ > 1e-6)
+            ? std::min(1.0, abs_omega / omega_freeze_thresh_) : 1.0;
+        double effective_q_geo = q_geo_ * omega_scale;
+        Q(8, 8) = Q(9, 9) = Q(10, 10) = effective_q_geo * dt;
 
         auto f = [dt](const Eigen::Matrix<double, STATE_DIM, 1> &x) {
             Eigen::Matrix<double, STATE_DIM, 1> x_out = x;
@@ -136,12 +143,38 @@ namespace robot_auto_aim {
             x(6) = std::atan2(std::sin(x(6)), std::cos(x(6)));
         };
 
+        const auto& Q_used = adaptive_tracking_ ? Q_adaptive_ : Q;
+
+        // State transitions for CONFIRMING states
+        if (confirmation_state_ == ConfirmationState::CONFIRMING) {
+            double abs_omega = std::abs(ukfs_[best_ukf_idx_].getState()(7));
+            if (abs_omega < omega_freeze_thresh_) {
+                // CONFIRMING → CONFIRMING_FROZEN: pick lower-error UKF, pause the other
+                best_ukf_idx_ = (accumulated_errors_[0] < accumulated_errors_[1]) ? 0 : 1;
+                confirmation_state_ = ConfirmationState::CONFIRMING_FROZEN;
+                RCLCPP_INFO(rclcpp::get_logger("robot_target"),
+                            "Low omega (%.2f < %.2f), freezing to single UKF[%d]",
+                            abs_omega, omega_freeze_thresh_, best_ukf_idx_);
+            }
+        } else if (confirmation_state_ == ConfirmationState::CONFIRMING_FROZEN) {
+            double abs_omega = std::abs(ukfs_[best_ukf_idx_].getState()(7));
+            if (abs_omega >= omega_freeze_thresh_) {
+                // CONFIRMING_FROZEN → CONFIRMING: re-derive paused hypothesis, resume dual UKF
+                rederivePausedHypothesis();
+                confirmation_state_ = ConfirmationState::CONFIRMING;
+                RCLCPP_INFO(rclcpp::get_logger("robot_target"),
+                            "Omega recovered (%.2f), resuming dual UKF", abs_omega);
+            }
+        }
+
+        // Execute predict based on current state
         if (confirmation_state_ == ConfirmationState::CONFIRMING) {
             for (int i = 0; i < 2; ++i) {
-                ukfs_[i].predict(f, adaptive_tracking_ ? Q_adaptive_ : Q, normalize_yaw);
+                ukfs_[i].predict(f, Q_used, normalize_yaw);
             }
         } else {
-            ukfs_[best_ukf_idx_].predict(f, adaptive_tracking_ ? Q_adaptive_ : Q, normalize_yaw);
+            // CONFIRMING_FROZEN or CONFIRMED: single UKF
+            ukfs_[best_ukf_idx_].predict(f, Q_used, normalize_yaw);
         }
         last_time_ = time;
     }
@@ -209,6 +242,8 @@ namespace robot_auto_aim {
                 armor_switch_count_++;
             }
 
+            // CONFIRMING state guarantees |omega| >= thresh (low omega transitions to FROZEN in predict),
+            // so no additional omega check needed here
             if (armor_switch_count_ >= 2 || update_count_ >= 100) {
                 best_ukf_idx_ = (accumulated_errors_[0] < accumulated_errors_[1]) ? 0 : 1;
                 confirmation_state_ = ConfirmationState::CONFIRMED;
@@ -216,6 +251,34 @@ namespace robot_auto_aim {
                             "Hypothesis confirmed after %d switches! Best index: %d, Total updates: %d",
                             armor_switch_count_, best_ukf_idx_, update_count_);
             }
+        } else if (confirmation_state_ == ConfirmationState::CONFIRMING_FROZEN) {
+            // Single UKF mode: only update active hypothesis, no error accumulation or switch counting
+            const auto x = ukfs_[best_ukf_idx_].getState();
+            int best_id = 0;
+            double min_angle_err = 1e10;
+            for (int i = 0; i < 4; ++i) {
+                double armor_angle = x(6) + i * M_PI / 2.0;
+                double angle_err = std::abs(std::atan2(std::sin(armor.yaw - armor_angle),
+                                                       std::cos(armor.yaw - armor_angle)));
+                if (angle_err < min_angle_err) {
+                    min_angle_err = angle_err;
+                    best_id = i;
+                }
+            }
+
+            Eigen::Matrix4d R = Eigen::Matrix4d::Zero();
+            R(0, 0) = r_range_ * (1.0 + r_range_k_ * range * range);
+            R(1, 1) = r_angle_;
+            R(2, 2) = r_angle_;
+            R(3, 3) = (best_id == last_armor_ids_[best_ukf_idx_]) ? base_r_yaw : base_r_yaw * r_yaw_adaptive_factor_;
+
+            auto h_func = [this, best_id](const Eigen::Matrix<double, STATE_DIM, 1> &x_in) {
+                return this->h(x_in, best_id);
+            };
+            if (ukfs_[best_ukf_idx_].template update<MEAS_DIM>(z, h_func, R, normalize_meas, normalize_state, mahalanobis_thresh_)) {
+                any_success = true;
+            }
+            last_armor_ids_[best_ukf_idx_] = best_id;
         } else {
             const auto x = ukfs_[best_ukf_idx_].getState();
             int best_id = 0;
@@ -252,6 +315,13 @@ namespace robot_auto_aim {
                 Q_base(6, 6) = sy2 * nom_dt;
                 Q_base(7, 7) = sy2 * nom_dt;
                 Q_base(8, 8) = Q_base(9, 9) = Q_base(10, 10) = q_geo_ * nom_dt;
+                // Apply same omega-adaptive scaling to adaptive Q baseline
+                double ada_abs_omega = std::abs(ukfs_[best_ukf_idx_].getState()(7));
+                double ada_omega_scale = (omega_freeze_thresh_ > 1e-6)
+                    ? std::min(1.0, ada_abs_omega / omega_freeze_thresh_) : 1.0;
+                Q_base(8, 8) *= ada_omega_scale;
+                Q_base(9, 9) *= ada_omega_scale;
+                Q_base(10, 10) *= ada_omega_scale;
                 if (ukfs_[best_ukf_idx_].template updateAdaptiveQ<MEAS_DIM>(z, h_func, R, Q_adaptive_, Q_base, q_alpha_,
                                                                    normalize_meas, normalize_state, mahalanobis_thresh_)) {
                     any_success = true;
@@ -287,7 +357,36 @@ namespace robot_auto_aim {
         double pos_norm = std::sqrt(x(0) * x(0) + x(2) * x(2) + x(4) * x(4));
         if (pos_norm > 400.0) return true;
         if (x(8) < 0.05 || x(8) > 0.6) return true;
+        // Geometry covariance divergence: r/l/h uncertainty growing unbounded
+        if (cov(8) > 1.0 || cov(9) > 1.0 || cov(10) > 1.0) return true;
         return false;
+    }
+
+    void RobotTarget::rederivePausedHypothesis() {
+        int active = best_ukf_idx_;
+        int paused = 1 - active;
+        auto x = ukfs_[active].getState();
+        auto P = ukfs_[active].getCovariance();
+
+        // Re-derive alternative hypothesis: rotate geometry by 90°
+        Eigen::Matrix<double, STATE_DIM, 1> x_alt = x;
+        x_alt(8) = x(8) + x(9);     // r_alt = r + l
+        x_alt(9) = -x(9);            // l_alt = -l
+        x_alt(10) = -x(10);          // h_alt = -h
+
+        // Preserve kinematic covariance, reset geometry covariance and cross-terms
+        Eigen::Matrix<double, STATE_DIM, STATE_DIM> P_alt = P;
+        for (int g = 8; g <= 10; ++g) {
+            for (int j = 0; j < STATE_DIM; ++j) {
+                P_alt(g, j) = P_alt(j, g) = 0.0;
+            }
+            P_alt(g, g) = p0_geo_;
+        }
+
+        ukfs_[paused].init(x_alt, P_alt);
+        // Reset for fair comparison after resuming dual mode
+        accumulated_errors_[0] = accumulated_errors_[1] = 0.0;
+        armor_switch_count_ = 0;
     }
 
     Eigen::Vector4d RobotTarget::getArmorCartesian(const Eigen::VectorXd &x, int id) const {

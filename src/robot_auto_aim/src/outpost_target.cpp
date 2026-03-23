@@ -11,6 +11,7 @@ namespace robot_auto_aim {
         : best_ukf_idx_(0), confirmation_state_(ConfirmationState::CONFIRMING),
           armor_num_(3), priority_(0), last_time_(0), update_count_(0),
           sigma_pos_(0.1), sigma_yaw_(0.3), q_geo_(0.0001),
+          omega_freeze_thresh_(0.5),
           r_range_(0.01), r_range_k_(0.5), r_angle_(0.0003),
           r_yaw_(0.05), r_yaw_adaptive_factor_(50.0), r_yaw_viewing_k_(10.0),
           mahalanobis_thresh_(15.0),
@@ -95,9 +96,13 @@ namespace robot_auto_aim {
         // yaw-v_yaw pair: CWNA (indices 3, 4)
         Q(3, 3) = sy2 * dt3 / 3.0;  Q(3, 4) = sy2 * dt2 / 2.0;
         Q(4, 3) = sy2 * dt2 / 2.0;  Q(4, 4) = sy2 * dt;
-        // Geometric parameters: random walk
-        Q(5, 5) = q_geo_ * dt;  // r
-        Q(6, 6) = q_geo_ * dt;  // h
+        // Geometric parameters: omega-adaptive random walk
+        double abs_omega = std::abs(ukfs_[best_ukf_idx_].getState()(4));
+        double omega_scale = (omega_freeze_thresh_ > 1e-6)
+            ? std::min(1.0, abs_omega / omega_freeze_thresh_) : 1.0;
+        double effective_q_geo = q_geo_ * omega_scale;
+        Q(5, 5) = effective_q_geo * dt;  // r
+        Q(6, 6) = effective_q_geo * dt;  // h
 
         auto f = [dt](const Eigen::Matrix<double, STATE_DIM, 1> &x) {
             Eigen::Matrix<double, STATE_DIM, 1> x_out = x;
