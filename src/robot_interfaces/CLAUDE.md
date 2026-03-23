@@ -20,7 +20,7 @@
 | `Gimbal` | `msg/Gimbal.msg` | 云台姿态：`header`、`pitch`/`roll`/`yaw`(float32，rad) |
 | `Mode` | `msg/Mode.msg` | 工作模式：`mode`(uint8，1=自瞄激活)、`is_pressing`(bool) |
 | `TargetState` | `msg/TargetState.msg` | UKF 滤波后目标完整状态（11 维机器人模型 / 7 维前哨站模型）：位置、速度、偏航角、角速度、旋转半径、长短轴差、高度差及其方差 |
-| `TargetTrajectory` | `msg/TargetTrajectory.msg` | 双轨制预测轨迹：`header` + `true_trajectory[]`（物理击打轨迹）+ `aim_trajectory[]`（平滑瞄准轨迹） |
+| `TargetTrajectory` | `msg/TargetTrajectory.msg` | 双轨制预测轨迹：`header` + `true_trajectory[]`（物理击打轨迹）+ `aim_trajectory[]`（平滑瞄准轨迹）+ `armor_width`（v1.1.0+，用于动态容差计算） |
 | `TargetTrajectoryPoint` | `msg/TargetTrajectoryPoint.msg` | 轨迹点：`time_offset`(s)、`x/y/z`(m)、`v_x/v_y/v_z`(m/s) |
 | `Measurement` | `msg/Measurement.msg` | UKF 原始观测值（调试用）：`header`、`x/y/z`、`yaw` |
 
@@ -59,6 +59,7 @@ colcon build --packages-select robot_interfaces
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| 1.1.0 | 2026-03-23 | TargetTrajectory.msg 添加 `float64 armor_width` 字段（用于动态开火容差） |
 | 1.0.0 | 2026-03-22 | 初始化文档，自动生成 |
 
 ---

@@ -1,3 +1,4 @@
 std_msgs/Header header
 robot_interfaces/TargetTrajectoryPoint[] true_trajectory
 robot_interfaces/TargetTrajectoryPoint[] aim_trajectory
+float64 armor_width
