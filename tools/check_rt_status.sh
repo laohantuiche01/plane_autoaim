@@ -9,7 +9,7 @@ WARN="⚠️  [WARN]"
 FAIL="❌ [FAIL]"
 
 # 获取vision进程ID
-VISION_PROC=$(pgrep -x "component_container_isolated" | head -1)
+VISION_PROC=$(pgrep -f "component_container_isolated" | grep -v "^$\$\$" | head -1)
 
 # 颜色定义
 RED=$'\033[0;31m'
@@ -64,7 +64,7 @@ else
     if echo "$SCHED_INFO" | grep -q "SCHED_FIFO"; then
         PRIO=$(echo "$SCHED_INFO" | grep -o "priority [0-9]*" | awk '{print $2}')
         echo "$PASS $SCHED_INFO"
-        if [ "$PRIO" -ge 90 ]; then
+        if [ -n "$PRIO" ] && [ "$PRIO" -ge 90 ]; then
             echo "$PASS 优先级: $PRIO（建议≥90）"
         else
             echo "$WARN 优先级: $PRIO（建议≥90）"
