@@ -7,12 +7,6 @@ endif ()
 
 find_package(ament_cmake_auto REQUIRED)
 find_package(OpenCV REQUIRED)
-find_library(JEMALLOC_LIB NAMES jemalloc)
-if(JEMALLOC_LIB)
-    message(STATUS "Found jemalloc: ${JEMALLOC_LIB}")
-else()
-    message(WARNING "jemalloc not found, using system allocator")
-endif()
 
 ament_auto_find_build_dependencies()
 
@@ -38,9 +32,6 @@ else ()
 endif()
 
 target_link_libraries(${PROJECT_NAME} MvCameraControl ${OpenCV_LIBS})
-if(JEMALLOC_LIB)
-    target_link_libraries(${PROJECT_NAME} ${JEMALLOC_LIB})
-endif()
 target_compile_features(${PROJECT_NAME} PUBLIC c_std_99 cxx_std_17)
 
 # 注册 Component (这也会根据 ament_auto 的特性处理 component 节点)
