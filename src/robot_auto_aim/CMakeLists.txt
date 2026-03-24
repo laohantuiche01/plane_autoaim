@@ -17,7 +17,12 @@ find_package(TBB REQUIRED COMPONENTS tbb)
 find_package(G2O REQUIRED)
 find_package(fmt REQUIRED)
 find_package(Sophus REQUIRED)
-find_package(jemalloc REQUIRED)
+find_library(JEMALLOC_LIB NAMES jemalloc)
+if(JEMALLOC_LIB)
+    message(STATUS "Found jemalloc: ${JEMALLOC_LIB}")
+else()
+    message(WARNING "jemalloc not found, using system allocator")
+endif()
 
 ament_auto_find_build_dependencies()
 
@@ -51,9 +56,10 @@ target_link_libraries(${PROJECT_NAME}
         g2o_types_slam3d
         g2o_solver_dense
         fmt::fmt
-        tbb
-        jemalloc
-)
+        tbb)
+if(JEMALLOC_LIB)
+    target_link_libraries(${PROJECT_NAME} ${JEMALLOC_LIB})
+endif()
 
 # 1. 注册Component，并分配一个不冲突的可执行文件名称
 rclcpp_components_register_node(${PROJECT_NAME}
