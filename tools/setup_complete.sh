@@ -64,10 +64,11 @@ show_menu() {
     echo "  ${BLUE}3)${NC} 安装 jemalloc 和 direnv"
     echo "  ${BLUE}4)${NC} 配置 direnv shell hook（已安装情况下）"
     echo "  ${BLUE}5)${NC} 配置 RT 优化（需要 root 权限）"
-    echo "  ${BLUE}6)${NC} 完整部署（依赖安装 + RT 优化，需要 root 权限）"
+    echo "  ${BLUE}6)${NC} 配置 ZSH 补全（ros2/colcon 命令补全）"
+    echo "  ${BLUE}7)${NC} 完整部署（依赖安装 + RT 优化，需要 root 权限）"
     echo "  ${BLUE}0)${NC} 退出"
     echo ""
-    read -p "请输入选项 (0-6): " choice
+    read -p "请输入选项 (0-7): " choice
     echo ""
 }
 
@@ -257,7 +258,14 @@ configure_rt() {
     bash "$(dirname "${BASH_SOURCE[0]}")/setup_rt_full.sh" --install-tools
 }
 
-# 6. 完整部署
+# 6. 配置 ZSH 补全
+configure_zsh_completion() {
+    print_header "配置 ZSH 补全"
+
+    bash "$(dirname "${BASH_SOURCE[0]}")/setup_zsh_completion.sh"
+}
+
+# 7. 完整部署
 full_deploy() {
     print_header "完整部署"
 
@@ -266,6 +274,7 @@ full_deploy() {
     echo "  2. 安装 jemalloc 和 direnv"
     echo "  3. 配置 direnv hook 和 .envrc"
     echo "  4. 配置 RT 优化（需要 root 权限）"
+    echo "  5. 配置 ZSH 补全"
     echo ""
     read -p "是否继续? [y/N] " -n 1 -r
     echo ""
@@ -273,10 +282,11 @@ full_deploy() {
         return
     fi
 
-    # 步骤 1-3 不需要 root
+    # 步骤 1-3, 5 不需要 root
     install_base_deps
     install_jemalloc_direnv
     configure_direnv
+    configure_zsh_completion
 
     # 步骤 4 需要 root
     if [ "$EUID" -ne 0 ]; then
@@ -317,6 +327,9 @@ main() {
                 configure_rt
                 ;;
             6)
+                configure_zsh_completion
+                ;;
+            7)
                 full_deploy
                 break
                 ;;
