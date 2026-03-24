@@ -4,7 +4,8 @@
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
-| 1.3.0 | 2026-03-24 | **系统级性能优化**：jemalloc per-thread arena 消除 malloc 锁争用、mlockall 消除 page fault、SCHED_FIFO 实时调度、内核隔离（isolcpus/nohz_full/rcu_nocbs）消除非自愿上下文切换、跨机器可移植的 .envrc 环境配置；单帧延迟 ↓2.7%，99%ile jitter ↓55%，上下文切换 ↓98% |
+| 1.3.1 | 2026-03-25 | **jemalloc 移除**：实车测试发现 jemalloc 导致运行一段时间后持续段错误（LD_PRELOAD 和 CMake 链接冲突）。完全移除 jemalloc，保留 mlockall 内存锁定和 SCHED_FIFO 调度；系统可稳定运行至相机帧率上限（250Hz）。缺页率从 60% 降至 40%（mlockall 实效），页面锁定比例 >90% |
+| 1.3.0 | 2026-03-24 | **系统级性能优化**：jemalloc per-thread arena 消除 malloc 锁争用（后移除）、mlockall 消除 page fault、SCHED_FIFO 实时调度、内核隔离（isolcpus/nohz_full/rcu_nocbs）消除非自愿上下文切换、跨机器可移植的 .envrc 环境配置；单帧延迟 ↓2.7%，99%ile jitter ↓55%，上下文切换 ↓98%；实车验证后移除 jemalloc（v1.3.1） |
 | 1.2.1 | 2026-03-24 | **低速切向融合跳过**：当 \|omega\| < omega_freeze_thresh 时，aim_trajectory 使用 best armor（硬切换）而非加权融合，避免瞄准点落在装甲板之间 |
 | 1.2.0 | 2026-03-24 | **零角速度可观测性保护**：UKF 几何参数 omega 自适应噪声冻结、isDiverged 增强、双假设确认冻结、CONFIRMING_FROZEN 单UKF模式减少计算开销 |
 | 1.1.0 | 2026-03-23 | 四项火控改进：①动态开火容差（基于装甲板宽度/距离自适应）②击发延时补偿（success 标志前移）③UKF 定时器可配置④解析法+SG 加权融合前馈；修复弹道可视化终点判定 |
@@ -142,23 +143,25 @@ colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 source install/setup.bash
 ```
 
-### 性能优化部署（v1.3.0 新增）
+### 性能优化部署（v1.3.0+, v1.3.1 移除 jemalloc）
 
 项目已集成系统级性能优化，可选择部署以改善延迟和抖动。详见 `OPTIMIZATION_IMPLEMENTATION_SUMMARY.md`。
+
+**重要**：v1.3.1 因实车测试发现 jemalloc 导致段错误而移除。系统已稳定运行至相机帧率上限（250Hz），mlockall 内存锁定和 SCHED_FIFO 调度继续保留。
 
 #### 一键部署（推荐）
 
 ```bash
 cd /home/mijiao/ckyf_vision
 
-# 1. 系统级优化（需 root，包括内核参数、权限、jemalloc、direnv）
+# 1. 系统级优化（需 root，包括内核参数、权限、direnv、mlockall 权限）
 sudo bash tools/setup_rt_full.sh --install-tools
 
 # 2. 用户级配置（交互式菜单，不需 root）
 bash tools/setup_complete.sh
 # → 选择 [4] "配置 direnv shell hook"
 
-# 3. 激活 direnv（使 .envrc 生效，包括 jemalloc LD_PRELOAD）
+# 3. 激活 direnv（使 .envrc 生效，CycloneDDS 配置）
 cd /home/mijiao/ckyf_vision && direnv allow
 
 # 4. 重新登录（使 limits.conf rtprio/memlock 生效）
@@ -178,15 +181,15 @@ bash /home/mijiao/ckyf_vision/tools/check_rt_status.sh
 bash /home/mijiao/ckyf_vision/tools/check_rt_status.sh --bench
 ```
 
-#### 核心改进
+#### 核心改进（v1.3.1）
 
 | 维度 | 优化 | 效果 |
 |------|------|------|
-| **内存分配** | jemalloc per-thread arena | malloc 锁争用消除，开销 ↓4.25× |
-| **内存访问** | mlockall(MCL_CURRENT\|MCL_FUTURE) | page fault 消除 |
+| **内存访问** | mlockall(MCL_CURRENT\|MCL_FUTURE) | page fault 消除，缺页率 60% → 40% |
 | **调度策略** | SCHED_FIFO @ 优先级 90 | 非自愿上下文切换 ↓98% |
 | **内核隔离** | isolcpus=0,1,2,3 + nohz_full + rcu_nocbs | 中断干扰消除 |
-| **环境配置** | 跨机器可移植的 .envrc | 自动架构检测，git 友好 |
+| **环境配置** | 跨机器可移植的 .envrc | CycloneDDS 配置自动化，git 友好 |
+| **移除** | jemalloc（v1.3.0 试验，v1.3.1 撤回） | 避免长期运行段错误（LD_PRELOAD 冲突） |
 
 **期望结果**（250Hz 海康相机 + 4 核隔离）：
 - 单帧处理时间：4.5ms → 4.38ms（↓2.7%）
@@ -272,16 +275,17 @@ ros2 launch robot_bringup camera_calibration.launch.py
 
 视觉处理流水线在边缘计算平台上受到多线程 malloc 争用、page fault、非自愿上下文切换和 TLB 压力的制约，导致单帧处理时间 jitter 过大（99%ile > 10ms，超过 4ms @250Hz 的预算）。
 
-**改进架构**（5 层优化）：
+**改进架构**（4 层优化，v1.3.1 移除 jemalloc）：
 
 ```
 Layer 5：应用参数              [已有 v1.1/1.2]
   ↓ 新增 v1.3
 Layer 4：进程内通信（Zero-Copy）[保持 ROS 2 零拷贝]
   ↓ 新增 v1.3
-Layer 3：内存管理              [jemalloc + mlockall]
-  ├─ jemalloc per-thread arena ：消除全局 malloc 锁
-  └─ mlockall(MCL_CURRENT|MCL_FUTURE)：消除 page fault
+Layer 3：内存管理              [mlockall，jemalloc 已移除]
+  └─ mlockall(MCL_CURRENT|MCL_FUTURE)：消除 page fault（v1.3 保留，v1.3.1 验证有效）
+     * 缺页率从 60% 降至 40%（实车测试）
+     * 页面锁定比例 >90%
   ↓ 新增 v1.3
 Layer 2：调度与隔离            [SCHED_FIFO + 内核参数]
   ├─ chrt -f 90 taskset -c 0,1,2,3：实时调度 + CPU 绑定
@@ -289,72 +293,90 @@ Layer 2：调度与隔离            [SCHED_FIFO + 内核参数]
   ├─ nohz_full=0,1,2,3：禁用 timer tick（100Hz 中断）
   └─ rcu_nocbs=0,1,2,3：RCU 回调离线化
   ↓ 新增 v1.3
-Layer 1：启动参数              [.envrc + MALLOC_CONF]
-  ├─ LD_PRELOAD=libjemalloc.so.2：自动检测架构
-  ├─ MALLOC_CONF=background_thread:true,metadata_thp:auto
+Layer 1：启动参数              [.envrc]
   └─ RMW_IMPLEMENTATION=rmw_cyclonedds_cpp：SHM IPC
+     CYCLONEDDS_URI：跨机器可移植相对路径配置
+     （jemalloc LD_PRELOAD 已在 v1.3.1 移除）
 ```
 
 **核心文件改动**：
 
-1. **`.envrc`** - 版本控制，跨机器可移植
-   - 自动架构检测（x86_64, aarch64, generic）
-   - 多级 jemalloc 路径查找（apt, /usr/local, /opt）
+1. **`.envrc`** - 版本控制，跨机器可移植（v1.3.1 移除 jemalloc 块）
+   - ~~自动架构检测（x86_64, aarch64, generic）~~（已移除）
+   - ~~多级 jemalloc 路径查找~~（已移除）
    - 相对路径 CycloneDDS 配置（`$(dirname "$BASH_SOURCE")`）
-   - 无脚本生成（防止 git 冲突）
+   - ROS 2 中间件选择
 
-2. **`src/hik_camera_driver/CMakeLists.txt:10, 35`**
-   - 添加 `find_package(jemalloc REQUIRED)`
-   - 链接 `target_link_libraries(...PUBLIC jemalloc)`
+2. **`src/hik_camera_driver/CMakeLists.txt`** 及 `src/robot_auto_aim/CMakeLists.txt`
+   - ~~jemalloc find_package 和 target_link_libraries~~（已全部移除）
+   - 保留标准依赖链接
 
 3. **`src/hik_camera_driver/src/hik_camera_driver.cpp:125-126`**
-   - 构造函数添加 `mlockall(MCL_CURRENT | MCL_FUTURE)`
-   - 优化 memcpy 避免临时 vector
+   - 构造函数保留 `mlockall(MCL_CURRENT | MCL_FUTURE)`
+   - 故障处理：若无 RLIMIT_MEMLOCK 权限时不强制失败，仅警告日志
 
-4. **`src/robot_auto_aim/CMakeLists.txt:20, 55`**
-   - 添加 jemalloc 链接
+4. **`src/robot_auto_aim/src/armor_detector_node.cpp:52-53`**
+   - 构造函数保留 mlockall（保护 NN 模型权重）
 
-5. **`src/robot_auto_aim/src/armor_detector_node.cpp:52-53`**
-   - 构造函数添加 mlockall（保护 NN 模型权重）
+5. **`src/robot_bringup/launch/vision.launch.py:48`** 及 `vision_bag.launch.py:36`
+   - 使用 `prefix=['chrt -f 90 taskset -c 0,1,2,3']`（SCHED_FIFO 实时调度）
 
-6. **`src/robot_bringup/launch/vision.launch.py:48`** 及 `vision_bag.launch.py:36`
-   - 更改 `prefix=['chrt -f 90 taskset -c 0,1,2,3']`（之前是 `nice -n -20`）
+**部署脚本**：
 
-**部署脚本新增**：
-
-- `tools/setup_rt_full.sh`：系统级优化（grub、limits.conf、IRQ affinity、jemalloc、direnv）
+- `tools/setup_rt_full.sh`：系统级优化（grub、limits.conf、IRQ affinity、direnv，jemalloc 已移除）
 - `tools/setup_complete.sh`：交互式菜单部署（依赖安装、direnv hook、RT 配置）
 - `tools/check_rt_status.sh`：优化验证清单 + 基准测试（cyclictest、perf）
 - `tools/restore_rt.sh`：安全回滚脚本
+- `tools/setup_git_identity.sh` / `tools/set_robot_type.sh`：多车辆自动识别（v1.3.1 新增）
 
-**性能收益（实测）**：
+**性能收益（实测，v1.3.1 最终验证）**：
 
 ```
 场景：250Hz 海康相机 + 3.6MB/帧 + 4 核隔离（infantry 机型）
 
-单帧处理时间：
-  优化前：4.5ms（内含 malloc 0.17ms、TLB miss 0.09ms、CTX switch 峰值 0.05ms）
-  优化后：4.38ms（malloc 0.04ms、TLB miss 0、CTX switch 0）
-  收益：↓0.12ms (2.7%)
+缺页率改进（mlockall 有效）：
+  优化前：60% page fault 比例
+  优化后：40% page fault 比例
+  页面锁定：>90% VmPin/VmRSS 比例
 
-Jitter (99%ile 延迟)：
-  优化前：10ms（max 峰值，来自于 malloc 争用 + page fault + 被其他线程抢占）
-  优化后：4.48ms（max 峰值消除）
-  收益：↓55%
+系统稳定性：
+  - 系统可稳定运行至相机帧率上限（250Hz）
+  - 无长期运行段错误
+  - 上下文切换 ↓98% 相对于无优化基线
 
-上下文切换：
-  优化前：~500 ctx_sw/s（时间切片抢占）
-  优化后：<10 ctx_sw/s（仅 I/O 阻塞时发生）
-  收益：↓98%
+注：jemalloc 虽预期能进一步优化 malloc 开销 4.25×，但实车测试发现
+    LD_PRELOAD 和 CMake 链接并存导致初始化冲突，运行一段时间后段错误。
+    v1.3.1 完全移除 jemalloc，采用 glibc 默认 malloc（含 per-thread
+    free-list 缓存），系统稳定性优先。
 ```
 
 **使用指南**：
 
 - 优化完全可选，不破坏现有 zero-copy 和 UniquePtr 发布模式
 - 部署不影响代码逻辑，仅改进运行时环境
-- `.envrc` 自动检测 jemalloc 是否安装，未安装时无损继续运行
 - 推荐在实车部署时启用，Rosbag 调试可不启用
 - 详见 `OPTIMIZATION_IMPLEMENTATION_SUMMARY.md` 中的部署与验证流程
+
+### 最近改进 (v1.3.1) - jemalloc 移除与实车验证
+
+实车测试（运行 2m+）发现 jemalloc 导致持续段错误运行崩溃。
+
+**改进内容**：
+
+- **完全移除 jemalloc**：从 `.envrc` 移除 LD_PRELOAD 块和 MALLOC_CONF；从 CMakeLists.txt 移除所有 jemalloc 链接
+- **保留关键优化**：mlockall 内存锁定、SCHED_FIFO 实时调度、内核隔离参数全部保留
+- **系统稳定性验证**：
+  - ✓ 系统可稳定运行至相机帧率上限（250Hz）
+  - ✓ 缺页率从 60% 降至 40%（mlockall 有效）
+  - ✓ 页面锁定比例 >90%（VmPin/VmRSS）
+  - ✓ 无长期运行段错误
+
+**参数调优注意**：
+
+- 车上 rcutils 版本可能过旧，若日志显示 `{date_time_with_ms}` 字面文字（未渲染时间戳）
+  执行 `sudo apt update && sudo apt upgrade ros-humble-rcutils` 解决
+- 若 mlockall 权限配置不完整，系统仍能运行（仅警告日志），page fault 比例略高
+- `.envrc` 中 `CYCLONEDDS_URI` 已切换为相对路径，支持跨机器部署无需修改
 
 ### 最近改进 (v1.2.1) - 低速切向融合跳过
 
@@ -444,7 +466,7 @@ CONFIRMING (双假设并行) ──|omega|<0.5──> CONFIRMING_FROZEN (单UKF�
 
 | 文件 | 说明 |
 |------|------|
-| `.envrc` | 环境变量自动加载（jemalloc、ROS 2 中间件、MALLOC_CONF），v1.3.0 新增 |
+| `.envrc` | 环境变量自动加载（ROS 2 中间件选择、CycloneDDS 配置），v1.3.0 新增，v1.3.1 移除 jemalloc |
 | `src/robot_bringup/config/default/params.yaml` | 默认机型全局参数（相机参数、检测阈值、UKF 噪声、弹道补偿） |
 | `src/robot_bringup/config/infantry_3/params.yaml` | 步兵3号机型专用参数 |
 | `src/robot_bringup/config/infantry_4/params.yaml` | 步兵4号机型专用参数 |
@@ -454,10 +476,16 @@ CONFIRMING (双假设并行) ──|omega|<0.5──> CONFIRMING_FROZEN (单UKF�
 | `src/robot_bringup/launch/camera_calibration.launch.py` | 相机标定启动入口 |
 | `src/robot_auto_aim/model/lenet.onnx` | 装甲板数字分类 ONNX 模型 |
 | `src/robot_auto_aim/model/label.txt` | 分类标签文件 |
-| `tools/setup_rt_full.sh` | 系统级性能优化部署脚本（v1.3.0 新增） |
-| `tools/setup_complete.sh` | 交互式菜单部署脚本（v1.3.0 新增） |
-| `tools/check_rt_status.sh` | 性能优化验证与基准测试（v1.3.0 新增） |
-| `tools/restore_rt.sh` | 性能优化回滚脚本（v1.3.0 新增） |
+| `tools/setup_rt_full.sh` | 系统级性能优化部署脚本（v1.3.0 新增，v1.3.1 移除 jemalloc 检测）：内核参数、权限、direnv、mlockall、IRQ affinity |
+| `tools/setup_complete.sh` | 交互式菜单部署脚本（v1.3.0 新增）：依赖安装、direnv hook、RT 配置、git 身份识别 |
+| `tools/check_rt_status.sh` | 性能优化验证与基准测试（v1.3.0 新增，v1.3.1 修复 pgrep 和行 67 PRIO 检查）：完整 RT 状态检查、cyclictest、perf 统计 |
+| `tools/restore_rt.sh` | 性能优化回滚脚本（v1.3.0 新增）：恢复默认内核参数和权限配置 |
+| `tools/setup_git_identity.sh` | 多车辆 git 身份自动配置（v1.3.1 新增）：根据主机名或 ROBOT_TYPE 设置 git author |
+| `tools/set_robot_type.sh` | 机器人类型检测工具（v1.3.1 新增）：从主机名自动识别，launch 脚本集成 |
+| `tools/git_identity_hook.sh` | 自动激活 hook（v1.3.1 新增）：cd 进入项目目录时自动设置 git 身份 |
+| `tools/activate_git_identity_hook.sh` | 一键激活 hook（v1.3.1 新增）：添加 hook 至 ~/.bashrc 和 ~/.zshrc |
+| `tools/disable_git_identity_hook.sh` | 禁用自动身份识别（v1.3.1 新增）：用于个人开发机器 |
+| `tools/enable_git_identity_hook.sh` | 重新启用 hook（v1.3.1 新增）：恢复自动身份识别 |
 | `docs/system_architecture.md` | 系统架构与算法详解 |
 | `docs/ukf_documentation.md` | UKF 数学推导文档 |
 | `docs/tuning_guide.md` | 参数调优指南 |
