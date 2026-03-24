@@ -115,6 +115,39 @@ else
 fi
 
 # ============================================================
+# 3b. 配置 CPU 频率调控器（立即生效）
+# ============================================================
+echo ""
+echo "[3b/5] ⚡ 配置 CPU 频率调控器..."
+
+# 检查 cpupower 命令
+if ! command -v cpupower &>/dev/null; then
+    echo "  └─ cpupower 未安装，尝试安装..."
+    apt-get install -y cpupower >/dev/null 2>&1 || {
+        echo "  ⚠️  cpupower 安装失败，尝试直接配置..."
+    }
+fi
+
+# 设置所有 CPU 核心为 performance
+NUM_CPUS=$(nproc)
+SUCCESS_COUNT=0
+
+for ((i=0; i<NUM_CPUS; i++)); do
+    if command -v cpupower &>/dev/null; then
+        if cpupower -c $i frequency-set -g performance 2>/dev/null; then
+            SUCCESS_COUNT=$((SUCCESS_COUNT+1))
+        fi
+    else
+        # 直接写入 sysfs（无需 cpupower）
+        if echo "performance" > /sys/devices/system/cpu/cpu${i}/cpufreq/scaling_governor 2>/dev/null; then
+            SUCCESS_COUNT=$((SUCCESS_COUNT+1))
+        fi
+    fi
+done
+
+echo "  ✅ 已配置 $SUCCESS_COUNT/$NUM_CPUS 个核心为 performance（立即生效）"
+
+# ============================================================
 # 4. 配置 direnv（环境变量自动加载）
 # ============================================================
 echo ""
