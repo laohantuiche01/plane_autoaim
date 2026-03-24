@@ -3,6 +3,7 @@
 //
 
 #include "hik_camera_driver.h"
+#include <sys/mman.h>
 
 std::map<std::string, const char *> HikCameraDriver::realName = {
     {"exposure_time", "ExposureTime"},
@@ -20,6 +21,12 @@ HikCameraDriver::HikCameraDriver() : HikCameraDriver(rclcpp::NodeOptions()) {
 
 HikCameraDriver::HikCameraDriver(const rclcpp::NodeOptions &options) : Node("camera_node", options) {
     using namespace std::chrono_literals;
+
+    // Lock all current and future memory pages to prevent page faults
+    if (mlockall(MCL_CURRENT | MCL_FUTURE) != 0) {
+        RCLCPP_WARN(get_logger(), "mlockall failed: %s", strerror(errno));
+    }
+
     declare_parameter("exposure_time", 1500.0);
     declare_parameter("gain", 15.0);
     declare_parameter("frame_rate", 250.0);
@@ -161,9 +168,14 @@ void HikCameraDriver::cameraCallback() {
     }
 
     cv::Mat bayerImage(frameOut.stFrameInfo.nHeight, frameOut.stFrameInfo.nWidth, CV_8UC1, frameOut.pBufAddr);
-    image->data = std::vector<unsigned char>(bayerImage.data, bayerImage.data +
-                                                            frameOut.stFrameInfo.nWidth *
-                                                            frameOut.stFrameInfo.nHeight);
+
+    // Optimize memcpy: avoid temporary vector construction
+    // Pre-resize if needed, then memcpy in-place (no extra copy)
+    const std::size_t frame_size = frameOut.stFrameInfo.nWidth * frameOut.stFrameInfo.nHeight;
+    if (image->data.size() != frame_size) {
+        image->data.resize(frame_size);
+    }
+    std::memcpy(image->data.data(), frameOut.pBufAddr, frame_size);
 
     image->height = frameOut.stFrameInfo.nHeight;
     image->width = frameOut.stFrameInfo.nWidth;
@@ -195,7 +207,13 @@ void HikCameraDriver::cameraCallback() {
     cameraInfo.roi.y_offset = offset_y_;
     cameraInfo.roi.height = height_;
     cameraInfo.roi.width = width_;
-    cameraInfoPublisher->publish(cameraInfo);
+
+    // Reduce CameraInfo publish frequency to every 30 frames (~120ms @ 250Hz)
+    static int cam_info_frame_count = 0;
+    if (++cam_info_frame_count >= 30) {
+        cam_info_frame_count = 0;
+        cameraInfoPublisher->publish(cameraInfo);
+    }
 
     static struct Count {
         uint8_t i: 5;

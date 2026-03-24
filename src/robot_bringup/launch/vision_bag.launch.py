@@ -33,7 +33,7 @@ def launch_setup(context, *args, **kwargs):
                 namespace='',
                 package='rclcpp_components',
                 executable='component_container_isolated',
-                prefix=['nice -n -20 taskset -c 0,1,2,3'], 
+                prefix=['chrt -f 90 taskset -c 0,1,2,3'], 
                 composable_node_descriptions=[
                     ComposableNode(
                         package='robot_auto_aim',

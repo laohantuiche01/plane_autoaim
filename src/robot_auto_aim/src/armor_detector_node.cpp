@@ -6,6 +6,7 @@
 #include <memory>
 #include <numeric>
 #include <vector>
+#include <sys/mman.h>
 
 #include <cv_bridge/cv_bridge.h>
 #include <tf2/LinearMath/Matrix3x3.h>
@@ -26,6 +27,12 @@ namespace robot_auto_aim {
 ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 : rclcpp_lifecycle::LifecycleNode("armor_detector", options)
 {
+    // Lock all current and future memory pages to prevent page faults
+    // (especially important for NN model weights and large allocations)
+    if (mlockall(MCL_CURRENT | MCL_FUTURE) != 0) {
+        RCLCPP_WARN(this->get_logger(), "mlockall failed: %s", strerror(errno));
+    }
+
     RCLCPP_INFO(this->get_logger(), "ArmorDetectorNode constructed.");
 }
 

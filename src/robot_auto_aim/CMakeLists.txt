@@ -17,6 +17,7 @@ find_package(TBB REQUIRED COMPONENTS tbb)
 find_package(G2O REQUIRED)
 find_package(fmt REQUIRED)
 find_package(Sophus REQUIRED)
+find_package(jemalloc REQUIRED)
 
 ament_auto_find_build_dependencies()
 
@@ -51,6 +52,7 @@ target_link_libraries(${PROJECT_NAME}
         g2o_solver_dense
         fmt::fmt
         tbb
+        jemalloc
 )
 
 # 1. 注册Component，并分配一个不冲突的可执行文件名称

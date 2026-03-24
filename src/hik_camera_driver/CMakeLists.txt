@@ -7,6 +7,7 @@ endif ()
 
 find_package(ament_cmake_auto REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(jemalloc REQUIRED)
 
 ament_auto_find_build_dependencies()
 
@@ -31,7 +32,7 @@ else ()
     message(SEND_ERROR "Your Device arch is not supported!")
 endif()
 
-target_link_libraries(${PROJECT_NAME} MvCameraControl ${OpenCV_LIBS})
+target_link_libraries(${PROJECT_NAME} MvCameraControl ${OpenCV_LIBS} jemalloc)
 target_compile_features(${PROJECT_NAME} PUBLIC c_std_99 cxx_std_17)
 
 # 注册 Component (这也会根据 ament_auto 的特性处理 component 节点)

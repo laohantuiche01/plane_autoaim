@@ -45,7 +45,7 @@ def launch_setup(context, *args, **kwargs):
         namespace='',
         package='rclcpp_components',
         executable='component_container_isolated',
-        prefix=['nice -n -20 taskset -c 0,1,2,3'], # Highest priority and CPU binding
+        prefix=['chrt -f 90 taskset -c 0,1,2,3'], # SCHED_FIFO priority 90 and CPU binding
         composable_node_descriptions=[
             ComposableNode(
                 package='hik_camera_driver',
