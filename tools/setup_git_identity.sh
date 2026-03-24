@@ -10,48 +10,27 @@ set -e
 # 配置
 # ============================================================
 
-# 机型标识映射（主机名 -> 机器标识）
-declare -A MACHINE_NAMES=(
-    ["infantry-3"]="infantry_3"
-    ["infantry-4"]="infantry_4"
-    ["sentry"]="sentry"
-    ["outpost"]="outpost"
-    ["default"]="default"
-)
-
 # 邮箱域名（可根据需要修改）
 MAIL_DOMAIN="${MAIL_DOMAIN:-vision-team.local}"
 
 # 项目根目录
 PROJECT_ROOT="${1:-.}"
 
+# 操作模式（--set 配置，--get-robot-type 获取机型）
+OPERATION_MODE="${OPERATION_MODE:-set}"
+
 # ============================================================
-# 函数：提取主机标识
+# 函数：提取主机标识（简化逻辑：仅环境变量和主机名）
 # ============================================================
 get_hostname_identifier() {
-    local hostname=$(hostname -s | tr '[:upper:]' '[:lower:]')
-
-    # 方式 1：直接匹配预定义的机型
-    for key in "${!MACHINE_NAMES[@]}"; do
-        if [[ "$hostname" == *"$key"* ]]; then
-            echo "${MACHINE_NAMES[$key]}"
-            return 0
-        fi
-    done
-
-    # 方式 2：从环境变量读取（如果已设置）
+    # 优先级 1：环境变量 $ROBOT_TYPE
     if [ -n "$ROBOT_TYPE" ]; then
         echo "$ROBOT_TYPE"
         return 0
     fi
 
-    # 方式 3：从参数文件读取（如果存在）
-    if [ -f "$PROJECT_ROOT/src/robot_bringup/config/active_robot_type" ]; then
-        cat "$PROJECT_ROOT/src/robot_bringup/config/active_robot_type"
-        return 0
-    fi
-
-    # 方式 4：直接使用主机名
+    # 优先级 2：直接使用主机名（无其他依赖）
+    local hostname=$(hostname -s | tr '[:upper:]' '[:lower:]')
     echo "$hostname"
     return 0
 }
@@ -120,6 +99,12 @@ show_info() {
 # 主程序
 # ============================================================
 main() {
+    # 检查是否是获取模式
+    if [[ "$2" == "--get-robot-type" ]] || [[ "$1" == "--get-robot-type" ]]; then
+        get_hostname_identifier
+        return 0
+    fi
+
     show_info
     configure_git_user "$@"
 

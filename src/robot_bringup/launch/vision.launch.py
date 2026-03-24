@@ -1,4 +1,5 @@
 import os
+import subprocess
 from datetime import datetime
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -6,6 +7,40 @@ from launch.actions import DeclareLaunchArgument, SetEnvironmentVariable, Opaque
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import ComposableNodeContainer, Node
 from launch_ros.descriptions import ComposableNode
+
+def get_default_robot_type():
+    """自动检测 robot_type（优先级：环境变量 > 主机名识别）"""
+    # 优先级 1：环境变量 ROBOT_TYPE
+    if 'ROBOT_TYPE' in os.environ:
+        return os.environ['ROBOT_TYPE']
+
+    # 优先级 2：从主机名识别（脚本方式）
+    try:
+        bringup_dir = get_package_share_directory('robot_bringup')
+        script_path = os.path.join(os.path.dirname(bringup_dir), '..', '..', 'tools', 'set_robot_type.sh')
+        result = subprocess.run(['bash', script_path, '--get'],
+                              capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            robot_type = result.stdout.strip()
+            # 验证是否是有效的机型
+            valid_types = ['default', 'infantry_3', 'infantry_4', 'sentry', 'outpost']
+            if robot_type in valid_types:
+                return robot_type
+            # 如果识别出的主机名不在有效列表中，尝试映射
+            hostname_to_type = {
+                'infantry-3': 'infantry_3',
+                'infantry-4': 'infantry_4',
+                'sentry': 'sentry',
+                'outpost': 'outpost',
+            }
+            for key, value in hostname_to_type.items():
+                if key in robot_type.lower():
+                    return value
+    except Exception:
+        pass
+
+    # 默认值
+    return 'default'
 
 def launch_setup(context, *args, **kwargs):
     # ---------------------------------------------------------
@@ -117,8 +152,8 @@ def generate_launch_description():
     # Arguments
     robot_type_arg = DeclareLaunchArgument(
         'robot_type',
-        default_value='default',
-        description='Type of the robot (default, sentry, infantry_3, infantry_4)'
+        default_value=get_default_robot_type(),
+        description='Type of the robot (default, sentry, infantry_3, infantry_4). Auto-detected from ROBOT_TYPE env or hostname if not specified.'
     )
     use_file_log_arg = DeclareLaunchArgument(
         'use_file_log',
