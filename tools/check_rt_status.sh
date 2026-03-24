@@ -12,10 +12,10 @@ FAIL="❌ [FAIL]"
 VISION_PROC=$(pgrep -x "component_container_isolated" | head -1)
 
 # 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+NC=$'\033[0m' # No Color
 
 echo ""
 echo -e "${GREEN}======================================================================"
