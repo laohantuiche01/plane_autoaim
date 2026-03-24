@@ -1,1 +1,289 @@
-[{"text": "# Git 身份自动配置指南\n\n## 概述\n\n在多台车（infantry-3、infantry-4、sentry 等）的协作开发中，每台车的提交应该带有该车的标识。本方案实现自动根据主机名或机器类型设置 git 用户名，无需手动配置。\n\n## 使用场景\n\n### 场景 1：单台车部署\n```bash\n# 手动配置当前仓库的 git 用户名\ncd /home/mijiao/ckyf_vision\nbash tools/setup_git_identity.sh\n\n# 输出\n# Git 身份自动配置\n# ============================================================\n# 机器信息：\n#   主机名：infantry-3\n#   主机ID：infantry-3\n#   标识符：infantry_3\n# \n# 配置本地 Git 用户...\n#   用户名：robot-infantry_3\n#   邮箱：  robot-infantry_3@vision-team.local\n# ✅ 本地配置完成\n#\n# 📋 当前 Git 配置：\n#   用户名：robot-infantry_3\n#   邮箱：  robot-infantry_3@vision-team.local\n```\n\n### 场景 2：所有车全局配置\n```bash\n# 配置全局 git 用户名（影响整个系统）\nbash tools/setup_git_identity.sh . --global\n```\n\n### 场景 3：自动激活 hook（推荐）\n```bash\n# 一键激活自动配置 hook\nbash tools/activate_git_identity_hook.sh\n\n# 后续每次 cd 进入 ckyf_vision 目录时，自动设置 git 用户名\ncd /home/mijiao/ckyf_vision  # 自动配置为 robot-infantry_3\n```\n\n## 工作原理\n\n### 识别机器类型的优先级（从高到低）\n\n1. **环境变量 `$ROBOT_TYPE`**\n   ```bash\n   export ROBOT_TYPE=infantry_4\n   bash tools/setup_git_identity.sh\n   # → git 用户名：robot-infantry_4\n   ```\n\n2. **项目配置文件**\n   ```bash\n   # 保存机器类型到项目（需要手动创建）\n   echo \"sentry\" > src/robot_bringup/config/active_robot_type\n   bash tools/setup_git_identity.sh\n   # → git 用户名：robot-sentry\n   ```\n\n3. **主机名匹配**\n   ```bash\n   # 主机名自动匹配（无需配置）\n   # hostname = \"infantry-3\" → robot-infantry_3\n   # hostname = \"sentry-01\"  → robot-sentry\n   ```\n\n4. **直接使用主机名**\n   ```bash\n   # 如果主机名无法匹配预定义列表，直接使用主机名\n   # hostname = \"my-robot\" → robot-my-robot\n   ```\n\n## 文件说明\n\n| 文件 | 用途 |\n|------|------|\n| `setup_git_identity.sh` | 核心配置脚本（手动或自动调用） |\n| `git_identity_hook.sh` | 自动激活 hook（添加到 ~/.bashrc/~/.zshrc） |\n| `activate_git_identity_hook.sh` | 一键激活脚本（自动修改 shell 配置） |\n\n## 部署方式\n\n### 方式 1：手动运行（最灵活）\n\n每台车手动运行一次：\n\n```bash\ncd /home/mijiao/ckyf_vision\nbash tools/setup_git_identity.sh\n\n# 验证\ngit config user.name\n# 输出：robot-infantry_3\n```\n\n**优点**：完全可控，无需修改 shell 配置  \n**缺点**：每台车都要手动运行一次\n\n### 方式 2：自动激活 hook（推荐生产环境）\n\n一台车只需配置一次：\n\n```bash\n# 第一次\nbash tools/activate_git_identity_hook.sh\n\n# 之后每次 cd 进入项目时自动配置\ncd /home/mijiao/ckyf_vision  # ← 自动运行 setup_git_identity.sh\n```\n\n**优点**：自动化，无需手动操作  \n**缺点**：需要修改 shell 配置文件\n\n### 方式 3：CI/CD 集成\n\n在启动脚本中调用：\n\n```bash\n# src/robot_bringup/launch/vision.launch.py\nos.system('bash /home/mijiao/ckyf_vision/tools/setup_git_identity.sh')\n```\n\n## 配置示例\n\n### 示例 1：infantry-3 机型\n\n```bash\n$ bash tools/setup_git_identity.sh\n\n机器信息：\n  主机名：infantry-3-arm64\n  标识符：infantry_3\n\n配置本地 Git 用户...\n  用户名：robot-infantry_3\n  邮箱：  robot-infantry_3@vision-team.local\n✅ 完成\n\n提交示例：\n$ git commit -m \"[MOD] 优化装甲板检测算法\"\n$ git log --oneline -1 --format='%an <%ae>'\nrobot-infantry_3 <robot-infantry_3@vision-team.local>\n```\n\n### 示例 2：sentry 机型\n\n```bash\n$ bash tools/setup_git_identity.sh\n\n机器信息：\n  主机名：sentry-01\n  标识符：sentry\n\n配置本地 Git 用户...\n  用户名：robot-sentry\n  邮箱：  robot-sentry@vision-team.local\n✅ 完成\n\n提交示例：\n$ git commit -m \"[FIX] 修复多目标跟踪崩溃\"\n$ git log --oneline -1 --format='%an <%ae>'\nrobot-sentry <robot-sentry@vision-team.local>\n```\n\n## 自定义配置\n\n### 修改邮箱域名\n\n编辑 `setup_git_identity.sh` 第 15 行：\n\n```bash\n# 原始\nMAIL_DOMAIN=\"${MAIL_DOMAIN:-vision-team.local}\"\n\n# 修改为\nMAIL_DOMAIN=\"${MAIL_DOMAIN:-mycompany.com}\"\n```\n\n或通过环境变量：\n\n```bash\nexport MAIL_DOMAIN=\"mycompany.com\"\nbash tools/setup_git_identity.sh\n```\n\n### 添加新机型\n\n编辑 `setup_git_identity.sh` 第 17-24 行的 `MACHINE_NAMES` 映射：\n\n```bash\ndeclare -A MACHINE_NAMES=(\n    [\"infantry-3\"]=\"infantry_3\"\n    [\"infantry-4\"]=\"infantry_4\"\n    [\"sentry\"]=\"sentry\"\n    [\"outpost\"]=\"outpost\"\n    [\"my-new-robot\"]=\"my_custom_id\"  # ← 新增\n    [\"default\"]=\"default\"\n)\n```\n\n## 故障排除\n\n### 问题 1：自动识别失效\n\n**症状**：运行脚本后 git 用户名不符合预期\n\n**解决**：\n\n```bash\n# 1. 检查主机名\nhostname -s\n\n# 2. 手动指定环境变量\nexport ROBOT_TYPE=infantry_4\nbash tools/setup_git_identity.sh\n\n# 3. 或手动指定项目根目录\nbash tools/setup_git_identity.sh /home/mijiao/ckyf_vision\n```\n\n### 问题 2：Hook 不自动运行\n\n**症状**：进入项目目录后 git 用户名没有自动更新\n\n**解决**：\n\n```bash\n# 1. 检查 hook 是否已添加\ngrep \"git_identity_hook\" ~/.bashrc\n\n# 2. 重新加载 shell 配置\nsource ~/.bashrc  # 或 source ~/.zshrc\n\n# 3. 验证 hook 是否生效\ncd /home/mijiao/ckyf_vision\ngit config user.name  # 应显示 robot-*\n```\n\n### 问题 3：权限不足\n\n**症状**：运行脚本时报权限错误\n\n**解决**：\n\n```bash\n# 添加执行权限\nchmod +x tools/setup_git_identity.sh\nchmod +x tools/git_identity_hook.sh\nchmod +x tools/activate_git_identity_hook.sh\n```\n\n## 验证配置\n\n### 验证当前仓库配置\n\n```bash\ncd /home/mijiao/ckyf_vision\ngit config --local user.name\ngit config --local user.email\n```\n\n### 验证全局配置\n\n```bash\ngit config --global user.name\ngit config --global user.email\n```\n\n### 查看提交历史中的身份\n\n```bash\n# 查看最近 5 个提交的作者\ngit log --oneline -5 --format='%an <%ae>'\n\n# 查看特定提交的作者信息\ngit show e0c28ad --format='%an <%ae>' | head -1\n```\n\n## 最佳实践\n\n1. **新车部署时首先配置 git 身份**\n   ```bash\n   cd /home/mijiao/ckyf_vision\n   bash tools/setup_git_identity.sh\n   ```\n\n2. **启用自动 hook 避免遗漏**\n   ```bash\n   bash tools/activate_git_identity_hook.sh\n   ```\n\n3. **定期验证提交身份**\n   ```bash\n   git log --oneline -10 --format='%an'\n   ```\n\n4. **在 CI/CD 中强制验证**\n   - 检查提交作者是否符合预期的机器标识\n   - 拒绝来自 \"Unknown\" 或错误身份的提交\n\n## 常见提交身份示例\n\n```\nrobot-infantry_3 (infantry 3 号步兵)\nrobot-infantry_4 (infantry 4 号步兵)\nrobot-sentry (哨兵)\nrobot-outpost (前哨站)\nrobot-default (测试环境)\n```\n\n---\n\n**文档版本**: 1.0  \n**最后更新**: 2026-03-24  \n**维护者**: AI Assistant (Claude Haiku 4.5)\n", "type": "text"}]
+# Git 身份自动配置指南
+
+## 概述
+
+在多台车（infantry-3、infantry-4、sentry 等）的协作开发中，每台车的提交应该带有该车的标识。本方案实现自动根据机器类型设置 git 用户名，无需手动配置。
+
+## 使用场景
+
+### 场景 1：单台车手动配置
+```bash
+# 手动配置当前仓库的 git 用户名
+cd /home/mijiao/ckyf_vision
+bash tools/setup_git_identity.sh
+
+# 输出示例
+# Git 身份自动配置
+# ============================================================
+# 机器信息：
+#   主机名：infantry-3
+#   标识符：infantry_3
+#
+# 配置本地 Git 用户...
+#   用户名：robot-infantry_3
+#   邮箱：  robot-infantry_3@vision-team.local
+# ✅ 本地配置完成
+#
+# 当前 Git 配置：
+#   用户名：robot-infantry_3
+#   邮箱：  robot-infantry_3@vision-team.local
+```
+
+### 场景 2：自动激活 hook（推荐生产）
+```bash
+# 一键激活自动配置 hook
+bash tools/activate_git_identity_hook.sh
+
+# 之后每次 cd 进入 ckyf_vision 目录时自动配置
+cd /home/mijiao/ckyf_vision  # 自动设置为 robot-infantry_3
+```
+
+### 场景 3：个人电脑禁用
+```bash
+# 个人电脑上禁用自动配置
+bash tools/disable_git_identity_hook.sh
+
+# 验证
+cd /home/mijiao/ckyf_vision
+git config user.name  # 应显示个人配置或 global 配置
+```
+
+## 工作原理
+
+### 识别机器类型的优先级（简化后仅两级）
+
+1. **环境变量 `$ROBOT_TYPE`** （最高优先）
+   ```bash
+   export ROBOT_TYPE=infantry_4
+   bash tools/setup_git_identity.sh
+   # → git 用户名：robot-infantry_4
+   ```
+
+2. **主机名直接识别** （默认）
+   ```bash
+   # 主机名自动识别
+   # hostname = "infantry-3" → robot-infantry_3
+   # hostname = "sentry-01"  → robot-sentry
+   # hostname = "my-device"  → robot-my-device
+   ```
+
+## 文件说明
+
+| 文件 | 用途 |
+|------|------|
+| `setup_git_identity.sh` | 核心配置脚本 |
+| `set_robot_type.sh` | 机型自动检测脚本 |
+| `git_identity_hook.sh` | 自动化 hook（进入项目目录时触发） |
+| `activate_git_identity_hook.sh` | 一键激活脚本 |
+| `disable_git_identity_hook.sh` | 禁用脚本（个人电脑用） |
+| `enable_git_identity_hook.sh` | 启用脚本（恢复后用） |
+
+## 部署方式
+
+### 方式 1：手动配置（最灵活）
+
+```bash
+cd /home/mijiao/ckyf_vision
+bash tools/setup_git_identity.sh
+
+# 验证
+git config user.name  # 应显示 robot-*
+```
+
+**优点**：完全可控
+**缺点**：每台车要手动运行一次
+
+### 方式 2：自动激活 hook（推荐生产）
+
+```bash
+# 第一次激活
+bash tools/activate_git_identity_hook.sh
+source ~/.bashrc
+
+# 之后自动配置
+cd /home/mijiao/ckyf_vision  # 自动生效
+```
+
+**优点**：自动化，无需手动操作
+**缺点**：需要修改 shell 配置
+
+### 方式 3：个人电脑禁用（可选）
+
+```bash
+# 禁用自动配置
+bash tools/disable_git_identity_hook.sh
+source ~/.bashrc
+
+# 恢复自动配置
+bash tools/enable_git_identity_hook.sh
+source ~/.bashrc
+```
+
+## 配置示例
+
+### 示例 1：Infantry-3 机型
+
+```bash
+$ bash tools/setup_git_identity.sh
+
+机器信息：
+  主机名：infantry-3
+  标识符：infantry_3
+
+配置本地 Git 用户...
+  用户名：robot-infantry_3
+  邮箱：  robot-infantry_3@vision-team.local
+✅ 完成
+
+提交效果：
+$ git log -1 --format='%an <%ae>'
+robot-infantry_3 <robot-infantry_3@vision-team.local>
+```
+
+### 示例 2：Sentry 机型
+
+```bash
+$ bash tools/setup_git_identity.sh
+
+机器信息：
+  主机名：sentry
+  标识符：sentry
+
+配置本地 Git 用户...
+  用户名：robot-sentry
+  邮箱：  robot-sentry@vision-team.local
+✅ 完成
+
+提交效果：
+$ git log -1 --format='%an <%ae>'
+robot-sentry <robot-sentry@vision-team.local>
+```
+
+## 自定义配置
+
+### 修改邮箱域名
+
+通过环境变量：
+
+```bash
+export MAIL_DOMAIN=mycompany.com
+bash tools/setup_git_identity.sh
+```
+
+或编辑脚本第 12 行：
+
+```bash
+MAIL_DOMAIN="${MAIL_DOMAIN:-mycompany.com}"
+```
+
+### 使用 ROBOT_TYPE 环境变量
+
+```bash
+export ROBOT_TYPE=sentry
+bash tools/setup_git_identity.sh
+# → git 用户名：robot-sentry
+```
+
+## 故障排除
+
+### 问题 1：自动识别失效
+
+**症状**：运行脚本后 git 用户名不符合预期
+
+**解决**：
+
+```bash
+# 检查主机名
+hostname -s
+
+# 手动指定
+export ROBOT_TYPE=infantry_4
+bash tools/setup_git_identity.sh
+```
+
+### 问题 2：Hook 不自动运行
+
+**症状**：cd 进入项目后 git 用户名没有更新
+
+**解决**：
+
+```bash
+# 检查 hook 是否已添加
+grep "git_identity_hook" ~/.bashrc
+
+# 重新加载配置
+source ~/.bashrc
+
+# 验证
+cd /home/mijiao/ckyf_vision
+git config user.name  # 应显示 robot-*
+```
+
+### 问题 3：权限问题
+
+**症状**：运行脚本时报权限错误
+
+**解决**：
+
+```bash
+chmod +x tools/*.sh
+```
+
+## 验证配置
+
+### 查看当前配置
+
+```bash
+cd /home/mijiao/ckyf_vision
+git config --local user.name
+git config --local user.email
+```
+
+### 查看提交历史
+
+```bash
+# 查看最近 5 个提交的作者
+git log -5 --format='%an <%ae>'
+
+# 查看特定提交
+git show e0c28ad --format='%an <%ae>' | head -1
+```
+
+## 最佳实践
+
+1. **新车首先配置身份**
+   ```bash
+   cd /home/mijiao/ckyf_vision
+   bash tools/setup_git_identity.sh
+   ```
+
+2. **启用自动 hook**
+   ```bash
+   bash tools/activate_git_identity_hook.sh
+   ```
+
+3. **定期验证提交身份**
+   ```bash
+   git log --oneline -10 --format='%an'
+   ```
+
+4. **个人电脑可禁用**
+   ```bash
+   bash tools/disable_git_identity_hook.sh
+   ```
+
+## 常见提交身份
+
+```
+robot-infantry_3      (Infantry 3 号步兵)
+robot-infantry_4      (Infantry 4 号步兵)
+robot-sentry          (哨兵)
+robot-outpost         (前哨站)
+robot-default         (测试环境)
+```
+
+---
+
+**文档版本**: 1.0
+**最后更新**: 2026-03-24
+**维护者**: AI Assistant (Claude Haiku 4.5)
