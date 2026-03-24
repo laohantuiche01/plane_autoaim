@@ -4,6 +4,7 @@
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| 1.3.2 | 2026-03-25 | **部署工具完善**：①CPU 频率调控器快速修复（powersave→performance，立即生效）②ZSH 补全自动配置（ros2/colcon 命令补全，基于 python-argcomplete）③setup_complete.sh 菜单集成；解决车上 CPU 频率默认 powersave 问题 |
 | 1.3.1 | 2026-03-25 | **jemalloc 移除**：实车测试发现 jemalloc 导致运行一段时间后持续段错误（LD_PRELOAD 和 CMake 链接冲突）。完全移除 jemalloc，保留 mlockall 内存锁定和 SCHED_FIFO 调度；系统可稳定运行至相机帧率上限（250Hz）。缺页率从 60% 降至 40%（mlockall 实效），页面锁定比例 >90% |
 | 1.3.0 | 2026-03-24 | **系统级性能优化**：jemalloc per-thread arena 消除 malloc 锁争用（后移除）、mlockall 消除 page fault、SCHED_FIFO 实时调度、内核隔离（isolcpus/nohz_full/rcu_nocbs）消除非自愿上下文切换、跨机器可移植的 .envrc 环境配置；单帧延迟 ↓2.7%，99%ile jitter ↓55%，上下文切换 ↓98%；实车验证后移除 jemalloc（v1.3.1） |
 | 1.2.1 | 2026-03-24 | **低速切向融合跳过**：当 \|omega\| < omega_freeze_thresh 时，aim_trajectory 使用 best armor（硬切换）而非加权融合，避免瞄准点落在装甲板之间 |
@@ -357,6 +358,51 @@ Layer 1：启动参数              [.envrc]
 - 推荐在实车部署时启用，Rosbag 调试可不启用
 - 详见 `OPTIMIZATION_IMPLEMENTATION_SUMMARY.md` 中的部署与验证流程
 
+### 最近改进 (v1.3.2) - 部署工具完善与 CPU 频率快速修复
+
+实车部署中发现两个常见问题：①CPU 频率默认 powersave 导致性能下降②缺少 ROS/Colcon 命令补全，增加操作复杂度。
+
+**改进内容**：
+
+**1. CPU 频率调控器快速修复** （解决 powersave 问题）
+- 新增 `tools/setup_cpu_freq.sh`：一键修复 CPU 频率为 performance
+- 集成到 `setup_rt_full.sh`（新增步骤 3b），自动在系统部署时配置
+- 支持 cpupower 和直接 sysfs 写入两种方式
+- **立即生效，无需重启**（相对于需要 reboot 的内核参数）
+- 车上快速修复：`sudo bash tools/setup_cpu_freq.sh`
+
+**2. ZSH 补全自动配置** （ros2/colcon 命令补全）
+- 新增 `tools/setup_zsh_completion.sh`：基于 python-argcomplete 配置补全
+- 自动检测并可选安装 `python3-argcomplete` 包
+- 集成到 `setup_complete.sh` 菜单（选项 [6]）
+- 支持 `--check` 快速验证状态
+- 使用体验提升：`ros2 <TAB>` 列出命令、`ros2 node <TAB>` 列出子命令
+
+**3. 菜单与工具集成**
+- `setup_complete.sh` 新增选项 [6]：配置 ZSH 补全
+- `setup_complete.sh` 菜单扩展到 [0-7]（新增两个功能选项）
+- 完整部署流程已包含 CPU 频率和 ZSH 补全配置
+
+**文件清单**：
+- `tools/setup_cpu_freq.sh` - CPU 频率快速修复（75 行）
+- `tools/setup_zsh_completion.sh` - ZSH 补全配置（130 行）
+- `docs/cpu_freq_setup_guide.md` - CPU 频率故障排除与永久配置
+- `docs/zsh_completion_guide.md` - ZSH 补全快速参考和故障排除
+
+**验证步骤**：
+
+```bash
+# 1. 检查 CPU 频率
+bash tools/check_rt_status.sh | grep "CPU 频率"
+# 应显示 performance，若为 powersave 则执行：
+sudo bash tools/setup_cpu_freq.sh
+
+# 2. 配置 ZSH 补全
+bash tools/setup_zsh_completion.sh --check
+exec zsh
+ros2 <TAB>  # 验证补全工作
+```
+
 ### 最近改进 (v1.3.1) - jemalloc 移除与实车验证
 
 实车测试（运行 2m+）发现 jemalloc 导致持续段错误运行崩溃。
@@ -476,8 +522,10 @@ CONFIRMING (双假设并行) ──|omega|<0.5──> CONFIRMING_FROZEN (单UKF�
 | `src/robot_bringup/launch/camera_calibration.launch.py` | 相机标定启动入口 |
 | `src/robot_auto_aim/model/lenet.onnx` | 装甲板数字分类 ONNX 模型 |
 | `src/robot_auto_aim/model/label.txt` | 分类标签文件 |
-| `tools/setup_rt_full.sh` | 系统级性能优化部署脚本（v1.3.0 新增，v1.3.1 移除 jemalloc 检测）：内核参数、权限、direnv、mlockall、IRQ affinity |
-| `tools/setup_complete.sh` | 交互式菜单部署脚本（v1.3.0 新增）：依赖安装、direnv hook、RT 配置、git 身份识别 |
+| `tools/setup_rt_full.sh` | 系统级性能优化部署脚本（v1.3.0 新增，v1.3.2 添加 CPU 频率配置）：内核参数、权限、direnv、CPU 频率、mlockall、IRQ affinity |
+| `tools/setup_complete.sh` | 交互式菜单部署脚本（v1.3.0 新增，v1.3.2 添加 ZSH 补全选项）：依赖安装、direnv hook、RT 配置、git 身份识别、ZSH 补全 |
+| `tools/setup_zsh_completion.sh` | ZSH 补全配置脚本（v1.3.2 新增）：ros2/colcon 命令补全，基于 python-argcomplete |
+| `tools/setup_cpu_freq.sh` | CPU 频率调控器快速修复脚本（v1.3.2 新增）：powersave→performance 立即生效 |
 | `tools/check_rt_status.sh` | 性能优化验证与基准测试（v1.3.0 新增，v1.3.1 修复 pgrep 和行 67 PRIO 检查）：完整 RT 状态检查、cyclictest、perf 统计 |
 | `tools/restore_rt.sh` | 性能优化回滚脚本（v1.3.0 新增）：恢复默认内核参数和权限配置 |
 | `tools/setup_git_identity.sh` | 多车辆 git 身份自动配置（v1.3.1 新增）：根据主机名或 ROBOT_TYPE 设置 git author |
@@ -491,4 +539,7 @@ CONFIRMING (双假设并行) ──|omega|<0.5──> CONFIRMING_FROZEN (单UKF�
 | `docs/tuning_guide.md` | 参数调优指南 |
 | `docs/camera_calibration_guide.md` | 相机标定指南 |
 | `docs/performance_analysis_guide.md` | 性能分析指南 |
+| `docs/zsh_completion_guide.md` | ZSH 补全快速参考（v1.3.2 新增） |
+| `docs/cpu_freq_setup_guide.md` | CPU 频率调控器故障排除（v1.3.2 新增） |
+| `docs/git_identity_setup_guide.md` | git 身份自动识别配置（v1.3.1 新增） |
 | `OPTIMIZATION_IMPLEMENTATION_SUMMARY.md` | 系统级性能优化完整实现总结（v1.3.0 新增） |
