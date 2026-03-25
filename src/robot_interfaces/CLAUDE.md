@@ -18,7 +18,7 @@
 | `Armors` | `msg/Armors.msg` | 装甲板列表：`header` + `Armor[]` |
 | `Aim` | `msg/Aim.msg` | 瞄准指令：`header`、`yaw`(rad)、`pitch`(rad)、`w_yaw`(rad/s)、`w_pitch`(rad/s)、`target_rate`(uint8)、`target_number`(uint8)、`success`(bool) |
 | `Gimbal` | `msg/Gimbal.msg` | 云台姿态：`header`、`pitch`/`roll`/`yaw`(float32，rad) |
-| `Mode` | `msg/Mode.msg` | 工作模式：`mode`(uint8，1=自瞄激活)、`is_pressing`(bool) |
+| `Mode` | `msg/Mode.msg` | 工作模式：`mode`(uint8，0=敌方蓝/激活，1=敌方红/激活，其他=休眠)、`is_pressing`(bool) |
 | `TargetState` | `msg/TargetState.msg` | UKF 滤波后目标完整状态（11 维机器人模型 / 7 维前哨站模型）：位置、速度、偏航角、角速度、旋转半径、长短轴差、高度差及其方差 |
 | `TargetTrajectory` | `msg/TargetTrajectory.msg` | 双轨制预测轨迹：`header` + `true_trajectory[]`（物理击打轨迹）+ `aim_trajectory[]`（平滑瞄准轨迹）+ `armor_width`（v1.1.0+，用于动态容差计算） |
 | `TargetTrajectoryPoint` | `msg/TargetTrajectoryPoint.msg` | 轨迹点：`time_offset`(s)、`x/y/z`(m)、`v_x/v_y/v_z`(m/s) |

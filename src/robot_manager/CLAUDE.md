@@ -7,7 +7,7 @@
 **生命周期管理节点**，负责在系统启动和模式切换时自动管理 `ArmorDetectorNode` 和 `ArmorSolverNode` 的生命周期状态：
 
 - 系统启动后延迟 2 秒，自动依次 Configure -> Activate 检测节点和求解节点
-- 监听 `/robot/mode` 话题，当模式变化时动态激活（mode=1）或休眠（mode≠1）视觉流水线
+- 监听 `/robot/mode` 话题，当模式变化时动态激活（mode=0 或 1）或休眠（其他值）视觉流水线；mode=0 表示敌方蓝，mode=1 表示敌方红
 - 通过 ROS 2 生命周期服务（`change_state`、`get_state`）进行状态转换，内置超时重试机制
 
 ---
@@ -69,6 +69,7 @@ colcon build --packages-select robot_manager
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| 1.1.0 | 2026-03-25 | 串口 mode 语义更新：mode=0（敌方蓝）和 mode=1（敌方红）均激活视觉流水线，其他值 deactivate |
 | 1.0.0 | 2026-03-22 | 初始化文档，自动生成 |
 
 ---
