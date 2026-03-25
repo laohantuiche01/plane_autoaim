@@ -25,13 +25,14 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# 脚本路径
+# 脚本路径（动态推导）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # 默认配置
 ROBOT_TYPE="${1:-default}"
-LOG_FILE="${LOG_DIR:-$HOME/.ckyf_vision_autostart}/vision.log"
+LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ckyf_vision_autostart"
+LOG_FILE="$LOG_DIR/vision.log"
 
 # 解析参数
 while [[ $# -gt 0 ]]; do
@@ -50,7 +51,7 @@ while [[ $# -gt 0 ]]; do
   ROBOT_TYPE              机器人类型 (default|infantry_3|infantry_4|sentry)
 
 选项:
-  --log-file PATH         日志文件路径 (默认: ~/.ckyf_vision_autostart/vision.log)
+  --log-file PATH         日志文件路径 (默认: \${XDG_CACHE_HOME:-\$HOME/.cache}/ckyf_vision_autostart/vision.log)
   --help                  显示此帮助信息
 
 示例:
@@ -140,22 +141,11 @@ rotate_logs() {
 
 # 创建启动脚本输出
 print_startup_header() {
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-
-    {
-        echo ""
-        echo "╔═════════════════════════════════════════════════════════════════╗"
-        echo "║                  ckyf_vision ROS 2 系统启动                      ║"
-        echo "╚═════════════════════════════════════════════════════════════════╝"
-        echo ""
-        echo "启动时间: $timestamp"
-        echo "机    型: $ROBOT_TYPE"
-        echo "项目路径: $PROJECT_ROOT"
-        echo "日志文件: $LOG_FILE"
-        echo ""
-        echo "─────────────────────────────────────────────────────────────────"
-        echo ""
-    } | tee "$LOG_FILE"
+    echo ""
+    echo "╔═════════════════════════════════════════════════════════════════╗"
+    echo "║                  ckyf_vision ROS 2 系统启动                      ║"
+    echo "╚═════════════════════════════════════════════════════════════════╝"
+    echo ""
 }
 
 # 主启动流程
@@ -173,12 +163,6 @@ main() {
     mkdir -p "$log_dir"
     rotate_logs
 
-    echo ""
-    print_info "配置参数:"
-    echo "  • 机    型: $ROBOT_TYPE"
-    echo "  • 日志文件: $LOG_FILE"
-    echo ""
-
     # 加载环境
     print_info "加载 ROS 2 环境..."
     cd "$PROJECT_ROOT"
@@ -189,26 +173,12 @@ main() {
     echo ""
     print_startup_header
 
-    # 执行启动（同时输出到终端和日志文件）
+    # 执行启动
     print_info "正在启动 vision.launch.py..."
     echo ""
 
-    # 使用 tee 同时输出到终端和日志
-    ros2 launch robot_bringup vision.launch.py robot_type:="$ROBOT_TYPE" 2>&1 | tee -a "$LOG_FILE"
-
-    # 启动失败时的处理
-    local exit_code=$?
-    if [ $exit_code -ne 0 ]; then
-        echo ""
-        print_error "系统启动失败 (Exit Code: $exit_code)"
-        echo ""
-        print_info "故障排除步骤:"
-        echo "  1. 检查日志: less $LOG_FILE"
-        echo "  2. 验证硬件连接（相机、串口）"
-        echo "  3. 检查 ROS 2 环境: ros2 doctor"
-        echo "  4. 查看详细信息: ros2 launch robot_bringup vision.launch.py robot_type:=$ROBOT_TYPE debug:=true"
-        exit $exit_code
-    fi
+    # 直接运行 launch 文件，日志由 launch 处理
+    ros2 launch robot_bringup vision.launch.py robot_type:="$ROBOT_TYPE"
 }
 
 # ============================================================================

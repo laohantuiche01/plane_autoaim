@@ -27,10 +27,20 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# 脚本路径
+# 脚本路径（动态推导，支持任意用户和路径）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-LOG_DIR="$HOME/.ckyf_vision_autostart"
+LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ckyf_vision_autostart"
+
+# 验证项目路径有效性（延迟到使用时，允许 --help 等命令先执行）
+check_project_root() {
+    if [ ! -d "$PROJECT_ROOT" ] || [ ! -f "$PROJECT_ROOT/src/robot_bringup/launch/vision.launch.py" ]; then
+        print_error "无法找到有效的项目根目录: $PROJECT_ROOT"
+        print_info "确保脚本位于 ckyf_vision/tools/ 目录中"
+        return 1
+    fi
+    return 0
+}
 
 # 默认配置
 METHOD="systemd"
@@ -136,42 +146,39 @@ setup_systemd_service() {
     print_info "创建启动包装脚本: $wrapper_script"
 
     # 创建包装脚本
-    cat > "$wrapper_script" << 'EOF'
+    cat > "$wrapper_script" << 'WRAPPER_EOF'
 #!/bin/bash
 # ROS 2 Vision 系统启动脚本
-# 此脚本在前台运行，日志输出到终端和文件
+# 此脚本在前台运行，直接调用 launch 文件
 
 set -e
 
-PROJECT_ROOT="/home/mijiao/ckyf_vision"
-LOG_DIR="$HOME/.ckyf_vision_autostart"
-LOG_FILE="$LOG_DIR/vision.log"
+# 动态推导项目路径
+if [ -n "$CKYF_VISION_ROOT" ] && [ -d "$CKYF_VISION_ROOT/install" ]; then
+    PROJECT_ROOT="$CKYF_VISION_ROOT"
+else
+    # 尝试常见位置
+    for possible_path in "$HOME/ckyf_vision" "$HOME/workspace/ckyf_vision" "$HOME/ros2_ws/src/ckyf_vision" "/opt/ckyf_vision"; do
+        if [ -f "$possible_path/install/setup.bash" ]; then
+            PROJECT_ROOT="$possible_path"
+            break
+        fi
+    done
+fi
+
+if [ -z "$PROJECT_ROOT" ] || [ ! -f "$PROJECT_ROOT/install/setup.bash" ]; then
+    echo "错误: 无法找到 ckyf_vision 项目"
+    echo "请设置环境变量: export CKYF_VISION_ROOT=/path/to/ckyf_vision"
+    exit 1
+fi
+
 ROBOT_TYPE="${ROBOT_TYPE:-default}"
 
-# 确保日志目录存在
-mkdir -p "$LOG_DIR"
-
-# 输出启动信息
-{
-    echo "====================================================================="
-    echo "ckyf_vision ROS 2 系统启动"
-    echo "时间: $(date '+%Y-%m-%d %H:%M:%S')"
-    echo "机型: $ROBOT_TYPE"
-    echo "项目: $PROJECT_ROOT"
-    echo "====================================================================="
-    echo ""
-} | tee -a "$LOG_FILE"
-
-# 执行启动
+# 加载环境并启动
 cd "$PROJECT_ROOT"
 source install/setup.bash
-
-echo "启动 ROS 2 Vision 系统..." | tee -a "$LOG_FILE"
-echo "" | tee -a "$LOG_FILE"
-
-# 启动系统（日志同时输出到文件和终端）
-ros2 launch robot_bringup vision.launch.py robot_type:="$ROBOT_TYPE" 2>&1 | tee -a "$LOG_FILE"
-EOF
+ros2 launch robot_bringup vision.launch.py robot_type:="$ROBOT_TYPE"
+WRAPPER_EOF
 
     chmod +x "$wrapper_script"
     print_success "启动脚本已创建: $wrapper_script"
@@ -215,7 +222,16 @@ EOF
     echo "  • 查看日志:   journalctl --user -u ckyf-vision -f"
     echo "  • 禁用自启:   systemctl --user disable ckyf-vision"
     echo ""
-    echo "日志位置: $LOG_FILE"
+    echo "日志位置: ${XDG_CACHE_HOME:-$HOME/.cache}/ckyf_vision_autostart/vision.log"
+    echo ""
+    echo "⚠️  重要提示："
+    echo "  • 首次启动前，确保设置 CKYF_VISION_ROOT 环境变量或项目位于标准位置："
+    echo "    - \$HOME/ckyf_vision"
+    echo "    - \$HOME/workspace/ckyf_vision"
+    echo "    - \$HOME/ros2_ws/src/ckyf_vision"
+    echo "    - /opt/ckyf_vision"
+    echo ""
+    echo "  • 或手动设置: export CKYF_VISION_ROOT=/path/to/your/ckyf_vision"
 }
 
 # ============================================================================
@@ -240,50 +256,58 @@ setup_desktop_autostart() {
 
     # 创建包装脚本（用于 desktop autostart）
     if [ -n "$DISPLAY_TERMINAL" ]; then
-        cat > "$wrapper_script" << EOF
+        cat > "$wrapper_script" << 'DESKTOP_EOF'
 #!/bin/bash
-# ROS 2 Vision 系统启动脚本（Desktop Autostart）
+# ROS 2 Vision 系统启动脚本
 
-PROJECT_ROOT="/home/mijiao/ckyf_vision"
-LOG_DIR="\$HOME/.ckyf_vision_autostart"
-LOG_FILE="\$LOG_DIR/vision.log"
-ROBOT_TYPE="\${ROBOT_TYPE:-$ROBOT_TYPE}"
+if [ -n "$CKYF_VISION_ROOT" ] && [ -d "$CKYF_VISION_ROOT/install" ]; then
+    PROJECT_ROOT="$CKYF_VISION_ROOT"
+else
+    for possible_path in "$HOME/ckyf_vision" "$HOME/workspace/ckyf_vision" "$HOME/ros2_ws/src/ckyf_vision" "/opt/ckyf_vision"; do
+        if [ -f "$possible_path/install/setup.bash" ]; then
+            PROJECT_ROOT="$possible_path"
+            break
+        fi
+    done
+fi
 
-mkdir -p "\$LOG_DIR"
+if [ -z "$PROJECT_ROOT" ] || [ ! -f "$PROJECT_ROOT/install/setup.bash" ]; then
+    echo "错误: 无法找到 ckyf_vision 项目"
+    exit 1
+fi
 
-# 记录启动信息
-{
-    echo "====================================================================="
-    echo "ckyf_vision ROS 2 系统启动 (Desktop Autostart)"
-    echo "时间: \$(date '+%Y-%m-%d %H:%M:%S')"
-    echo "机型: \$ROBOT_TYPE"
-    echo "项目: \$PROJECT_ROOT"
-    echo "====================================================================="
-    echo ""
-} >> "\$LOG_FILE"
+ROBOT_TYPE="${ROBOT_TYPE:-default}"
 
-cd "\$PROJECT_ROOT"
+cd "$PROJECT_ROOT"
 source install/setup.bash
-
-ros2 launch robot_bringup vision.launch.py robot_type:="\$ROBOT_TYPE" 2>&1 | tee -a "\$LOG_FILE"
-EOF
+ros2 launch robot_bringup vision.launch.py robot_type:="$ROBOT_TYPE"
+DESKTOP_EOF
     else
-        cat > "$wrapper_script" << EOF
+        cat > "$wrapper_script" << 'DESKTOP_BG_EOF'
 #!/bin/bash
-# ROS 2 Vision 系统启动脚本（后台）
+# ROS 2 Vision 系统启动脚本
 
-PROJECT_ROOT="/home/mijiao/ckyf_vision"
-LOG_DIR="\$HOME/.ckyf_vision_autostart"
-LOG_FILE="\$LOG_DIR/vision.log"
-ROBOT_TYPE="\${ROBOT_TYPE:-$ROBOT_TYPE}"
+if [ -n "$CKYF_VISION_ROOT" ] && [ -d "$CKYF_VISION_ROOT/install" ]; then
+    PROJECT_ROOT="$CKYF_VISION_ROOT"
+else
+    for possible_path in "$HOME/ckyf_vision" "$HOME/workspace/ckyf_vision" "$HOME/ros2_ws/src/ckyf_vision" "/opt/ckyf_vision"; do
+        if [ -f "$possible_path/install/setup.bash" ]; then
+            PROJECT_ROOT="$possible_path"
+            break
+        fi
+    done
+fi
 
-mkdir -p "\$LOG_DIR"
+if [ -z "$PROJECT_ROOT" ] || [ ! -f "$PROJECT_ROOT/install/setup.bash" ]; then
+    exit 1
+fi
 
-cd "\$PROJECT_ROOT"
+ROBOT_TYPE="${ROBOT_TYPE:-default}"
+
+cd "$PROJECT_ROOT"
 source install/setup.bash
-
-ros2 launch robot_bringup vision.launch.py robot_type:="\$ROBOT_TYPE" >> "\$LOG_FILE" 2>&1 &
-EOF
+ros2 launch robot_bringup vision.launch.py robot_type:="$ROBOT_TYPE" &
+DESKTOP_BG_EOF
     fi
 
     chmod +x "$wrapper_script"
@@ -449,7 +473,8 @@ check_autostart_status() {
 
     local systemd_service="$HOME/.config/systemd/user/ckyf-vision.service"
     local desktop_file="$HOME/.config/autostart/ckyf-vision.desktop"
-    local log_file="$HOME/.ckyf_vision_autostart/vision.log"
+    local log_dir="${XDG_CACHE_HOME:-$HOME/.cache}/ckyf_vision_autostart"
+    local log_file="$log_dir/vision.log"
 
     echo ""
     echo "【systemd Service】"
@@ -568,10 +593,12 @@ EOF
 }
 
 # 解析命令行参数
+INTERACTIVE_MODE=0
 while [[ $# -gt 0 ]]; do
     case $1 in
         --method)
             METHOD="$2"
+            INTERACTIVE_MODE=1
             shift 2
             ;;
         --robot-type)
@@ -603,23 +630,26 @@ done
 # ============================================================================
 
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
-    # 检查环境
-    if [ ! -d "$PROJECT_ROOT/install" ]; then
+    # 只在实际执行操作时检查项目
+    if [ "$INTERACTIVE_MODE" -eq 1 ] || [ $# -gt 0 ]; then
+        check_project_root || exit 1
+    fi
+
+    # 检查环境（仅在需要时）
+    if [ ! -d "$PROJECT_ROOT/install" ] && ([ "$INTERACTIVE_MODE" -eq 1 ] || [ $# -gt 0 ]); then
         print_error "项目未编译，请先运行: colcon build"
         exit 1
     fi
 
-    # 如果没有指定参数，进入交互菜单
-    if [ $# -eq 0 ] || [[ "$*" == *"--method"* ]]; then
-        if [ $# -eq 0 ]; then
-            main_menu
+    # 如果指定了 --method，直接执行配置
+    if [ "$INTERACTIVE_MODE" -eq 1 ]; then
+        if [ "$METHOD" = "systemd" ]; then
+            setup_systemd_service
         else
-            # 命令行模式：设置自启动并退出
-            if [ "$METHOD" = "systemd" ]; then
-                setup_systemd_service
-            else
-                setup_desktop_autostart
-            fi
+            setup_desktop_autostart
         fi
+    else
+        # 否则进入交互菜单
+        main_menu
     fi
 fi

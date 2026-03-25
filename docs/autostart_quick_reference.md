@@ -57,7 +57,7 @@ journalctl --user -u ckyf-vision -f
 | systemd 服务 | `~/.config/systemd/user/ckyf-vision.service` |
 | Desktop 配置 | `~/.config/autostart/ckyf-vision.desktop` |
 | 启动脚本 | `~/.local/bin/ckyf-vision-start.sh` |
-| 日志文件 | `~/.ckyf_vision_autostart/vision.log` |
+| 日志文件 | `${XDG_CACHE_HOME:-$HOME/.cache}/ckyf_vision_autostart/vision.log` |
 
 ---
 

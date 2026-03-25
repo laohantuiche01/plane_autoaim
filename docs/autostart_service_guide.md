@@ -91,8 +91,10 @@ systemctl --user enable ckyf-vision
 ### 日志位置
 
 ```
-~/.ckyf_vision_autostart/vision.log
+${XDG_CACHE_HOME:-$HOME/.cache}/ckyf_vision_autostart/vision.log
 ```
+
+通常为：`~/.cache/ckyf_vision_autostart/vision.log`
 
 ### 故障排除
 
@@ -171,8 +173,10 @@ rm ~/.config/autostart/ckyf-vision.desktop
 ### 日志位置
 
 ```
-~/.ckyf_vision_autostart/vision.log
+${XDG_CACHE_HOME:-$HOME/.cache}/ckyf_vision_autostart/vision.log
 ```
+
+通常为：`~/.cache/ckyf_vision_autostart/vision.log`
 
 ---
 

@@ -144,7 +144,7 @@ systemctl --user disable ckyf-vision
 ~/.config/systemd/user/ckyf-vision.service    # systemd 服务配置
 ~/.config/autostart/ckyf-vision.desktop       # Desktop autostart 配置
 ~/.local/bin/ckyf-vision-start.sh            # 启动脚本
-~/.ckyf_vision_autostart/vision.log           # 应用日志
+${XDG_CACHE_HOME:-$HOME/.cache}/ckyf_vision_autostart/vision.log  # 应用日志
 ```
 
 ---
@@ -224,7 +224,7 @@ bash tools/quick_start_vision.sh --robot-type default
 
 2. **查看详细日志**
    ```bash
-   tail -f ~/.ckyf_vision_autostart/vision.log
+   tail -f ${XDG_CACHE_HOME:-$HOME/.cache}/ckyf_vision_autostart/vision.log
    ```
 
 3. **验证项目环境**
