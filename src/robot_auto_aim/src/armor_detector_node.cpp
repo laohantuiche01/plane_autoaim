@@ -317,7 +317,7 @@ std::unique_ptr<robot_auto_aim::Detector> ArmorDetectorNode::initDetector()
 
 void ArmorDetectorNode::modeCallback(const robot_interfaces::msg::Mode::SharedPtr msg)
 {
-    auto new_color = (msg->mode == 1) ? robot_utils::EnemyColor::RED : robot_utils::EnemyColor::BLUE;
+    auto new_color = (msg->mode == 0) ? robot_utils::EnemyColor::RED : robot_utils::EnemyColor::BLUE;
     if (detector_ && detector_->detect_color != new_color) {
         detector_->detect_color = new_color;
         RCLCPP_INFO(this->get_logger(), "Enemy color switched to: %s",

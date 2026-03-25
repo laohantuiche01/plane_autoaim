@@ -46,7 +46,7 @@
 
 | 参数名 | 默认值 | 说明 |
 |--------|--------|------|
-| `enemy_color` | `"auto"` | 敌方颜色（`auto` / `red` / `blue`）；`auto` 模式订阅 `/robot/mode` 动态切换（mode=0→蓝，mode=1→红） |
+| `enemy_color` | `"auto"` | 敌方颜色（`auto` / `red` / `blue`）；`auto` 模式订阅 `/robot/mode` 动态切换（mode=0→红，mode=1→蓝） |
 | `binary_thres` | 160 | 二值化阈值（0-255） |
 | `use_ba` | true | 是否启用 Bundle Adjustment 精化位姿 |
 | `use_pca` | true | 是否启用 PCA 角点校正 |
@@ -191,7 +191,7 @@ colcon test --packages-select robot_auto_aim
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
-| 1.5.0 | 2026-03-25 | 串口 mode 颜色自动切换：enemy_color 新增 "auto" 模式，订阅 /robot/mode 动态更新 detect_color（mode=0→蓝，mode=1→红），默认配置改为 "auto" |
+| 1.5.0 | 2026-03-25 | 串口 mode 颜色自动切换：enemy_color 新增 "auto" 模式，订阅 /robot/mode 动态更新 detect_color（mode=0→红，mode=1→蓝），默认配置改为 "auto" |
 | 1.4.1 | 2026-03-24 | 低速切向融合跳过：当 \|omega\| < omega_freeze_thresh 时，aim_trajectory 使用 best armor（硬切换）而非加权融合，避免瞄准点落在装甲板之间 |
 | 1.4.0 | 2026-03-24 | 零角速度可观测性保护：①omega 自适应几何噪声冻结②isDiverged 增强③双假设确认冻结④CONFIRMING_FROZEN 状态+单UKF模式降低计算开销 |
 | 1.3.0 | 2026-03-23 | UKF 定时器频率参数化（timer_frequency）；TargetTrajectory 添加 armor_width 字段（用于动态容差） |

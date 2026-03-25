@@ -4,7 +4,7 @@
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
-| 1.4.0 | 2026-03-25 | **串口 mode 颜色语义**：①`mode=0` 敌方蓝、`mode=1` 敌方红，两者均激活视觉流水线②`enemy_color` 参数新增 `"auto"` 选项，自动订阅 `/robot/mode` 动态切换检测颜色③所有机型配置默认改为 `"auto"` |
+| 1.4.0 | 2026-03-25 | **串口 mode 颜色语义**：①`mode=0` 敌方红、`mode=1` 敌方蓝，两者均激活视觉流水线②`enemy_color` 参数新增 `"auto"` 选项，自动订阅 `/robot/mode` 动态切换检测颜色③所有机型配置默认改为 `"auto"` |
 | 1.3.2 | 2026-03-25 | **部署工具完善**：①CPU 频率调控器快速修复（powersave→performance，立即生效）②ZSH 补全自动配置（ros2/colcon 命令补全，基于 python-argcomplete）③setup_complete.sh 菜单集成；解决车上 CPU 频率默认 powersave 问题 |
 | 1.3.1 | 2026-03-25 | **jemalloc 移除**：实车测试发现 jemalloc 导致运行一段时间后持续段错误（LD_PRELOAD 和 CMake 链接冲突）。完全移除 jemalloc，保留 mlockall 内存锁定和 SCHED_FIFO 调度；系统可稳定运行至相机帧率上限（250Hz）。缺页率从 60% 降至 40%（mlockall 实效），页面锁定比例 >90% |
 | 1.3.0 | 2026-03-24 | **系统级性能优化**：jemalloc per-thread arena 消除 malloc 锁争用（后移除）、mlockall 消除 page fault、SCHED_FIFO 实时调度、内核隔离（isolcpus/nohz_full/rcu_nocbs）消除非自愿上下文切换、跨机器可移植的 .envrc 环境配置；单帧延迟 ↓2.7%，99%ile jitter ↓55%，上下文切换 ↓98%；实车验证后移除 jemalloc（v1.3.1） |
