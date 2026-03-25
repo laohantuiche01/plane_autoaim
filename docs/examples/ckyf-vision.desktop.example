@@ -1,0 +1,62 @@
+[Desktop Entry]
+# Desktop Entry 文件示例
+# 位置：~/.config/autostart/ckyf-vision.desktop
+#
+# 此为参考示例，通常由 setup_autostart_service.sh 脚本自动生成
+# 用于桌面环境的应用自启动
+#
+
+# 文件类型
+Type=Application
+
+# 应用名称
+Name=ckyf_vision ROS 2
+
+# 应用描述
+Comment=ROS 2 Vision Auto-Aim System Startup
+
+# 执行命令
+# 根据终端类型选择：
+Exec=gnome-terminal -- bash /home/mijiao/.local/bin/ckyf-vision-start.sh
+
+# 应用图标（可选）
+Icon=utilities-terminal
+
+# 是否在终端中运行
+Terminal=false
+
+# 应用分类
+Categories=Development;Robotics;ROS;
+
+# 自启动相关（GNOME 特定）
+X-GNOME-Autostart-enabled=true
+# X-GNOME-Autostart-Delay=5  # 启动延迟（秒）
+
+# KDE 特定选项（可选）
+# X-KDE-RunInTerminal=true
+
+# 其他选项
+# NoDisplay=false     # 在应用菜单中显示
+# Hidden=false        # 是否隐藏
+# MimeType=           # 支持的文件类型
+# Keywords=           # 关键词（用于搜索）
+
+# ============================================================================
+# 终端选择参考：
+# ============================================================================
+#
+# GNOME Terminal:
+#   Exec=gnome-terminal -- bash /path/to/script.sh
+#
+# Xfce Terminal:
+#   Exec=xfce4-terminal -e "bash /path/to/script.sh"
+#
+# KDE Konsole:
+#   Exec=konsole -e bash /path/to/script.sh
+#
+# Xterm:
+#   Exec=xterm -e "bash /path/to/script.sh; read -p 'Press Enter...'"
+#
+# Ubuntu（自动检测最可用的终端）:
+#   Exec=x-terminal-emulator -e bash /path/to/script.sh
+#

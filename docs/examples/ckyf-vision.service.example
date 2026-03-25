@@ -1,0 +1,82 @@
+[Unit]
+# systemd service 文件示例
+# 位置：~/.config/systemd/user/ckyf-vision.service
+#
+# 此为参考示例，通常由 setup_autostart_service.sh 脚本自动生成
+#
+# 手动编辑后需要：
+#   systemctl --user daemon-reload
+#   systemctl --user restart ckyf-vision
+
+Description=ckyf_vision ROS 2 Vision Auto-Aim System
+Comment=Automatic startup of ROS 2 Vision system for robot auto-aim
+
+# 依赖关系
+After=network.target graphical-session.target
+
+# 属于桌面会话
+PartOf=graphical-session.target
+
+[Service]
+# 服务启动类型：simple 表示前台运行，不用 fork
+Type=simple
+
+# 启动命令（请确保路径正确）
+# 脚本会处理环境变量和 ROS 2 初始化
+ExecStart=/home/mijiao/.local/bin/ckyf-vision-start.sh
+
+# 启动优先级（可选）
+# 数值越小优先级越高，范围 -20 到 19
+# Nice=0
+
+# 故障重启策略
+# on-failure: 只在失败时重启
+# always: 总是重启
+# no: 不重启
+Restart=on-failure
+
+# 重启延迟（秒）
+RestartSec=5
+
+# 最多重启次数（防止无限重启）
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# 环境变量配置
+Environment="ROBOT_TYPE=default"
+Environment="RMW_IMPLEMENTATION=rmw_cyclonedds_cpp"
+Environment="ROS_LOG_DIR=%h/.ckyf_vision_autostart"
+
+# 可选：限制资源
+# MemoryMax=2G
+# CPUQuota=80%
+
+# 日志输出处理
+# inherit: 继承调用进程的输出
+# journal: 发送到 systemd journal
+# auto: 自动选择
+StandardOutput=inherit
+StandardError=inherit
+
+# 超时设置（秒）
+# 启动超时：等待服务就绪的最长时间
+# TimeoutStartSec=30
+
+# 停止超时：给予进程关闭的最长时间
+# TimeoutStopSec=10
+
+# 工作目录（可选）
+WorkingDirectory=%h
+
+# 用户身份运行（通常为当前用户）
+# User=%i
+
+[Install]
+# 启用此服务的方式
+# graphical-session.target: 在用户图形会话中启动
+# multi-user.target: 多用户模式
+# reboot.target: 系统重启时
+WantedBy=graphical-session.target
+
+# 相关的其他单元（可选）
+# Also=other.service
