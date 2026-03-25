@@ -19,6 +19,7 @@
 #include "robot_interfaces/msg/armors.hpp"
 #include "robot_interfaces/msg/debug_lights.hpp"
 #include "robot_interfaces/msg/debug_armors.hpp"
+#include "robot_interfaces/msg/mode.hpp"
 
 namespace robot_auto_aim {
 
@@ -38,6 +39,7 @@ protected:
 
 private:
     void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg);
+    void modeCallback(const robot_interfaces::msg::Mode::SharedPtr msg);
 
     std::unique_ptr<robot_auto_aim::Detector> initDetector();
     std::vector<robot_auto_aim::Armor> detectArmors(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg);
@@ -48,12 +50,14 @@ private:
     std::unique_ptr<robot_auto_aim::Detector> detector_;
     std::unique_ptr<robot_auto_aim::ArmorPoseEstimator> armor_pose_estimator_;
     bool use_ba_;
+    std::string enemy_color_mode_;  // "auto", "red", "blue"
 
     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;
     cv::Point2f cam_center_;
     std::shared_ptr<sensor_msgs::msg::CameraInfo> cam_info_;
 
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr img_sub_;
+    rclcpp::Subscription<robot_interfaces::msg::Mode>::SharedPtr mode_sub_;
     std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<robot_interfaces::msg::Armors>> armors_pub_;
 
     std::string odom_frame_;

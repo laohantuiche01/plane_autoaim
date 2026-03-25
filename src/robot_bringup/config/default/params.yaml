@@ -25,7 +25,7 @@ armor_detector:
     target_frame: "odom"
     debug: true
     binary_thres: 160
-    enemy_color: "red"
+    enemy_color: "auto"
     classifier_threshold: 0.8
     ignore_classes: ["negative"]
     use_pca: true

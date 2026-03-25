@@ -45,6 +45,14 @@ CallbackReturn ArmorDetectorNode::on_configure(const rclcpp_lifecycle::State & /
     detector_ = initDetector();
     use_ba_ = this->declare_parameter("use_ba", true);
 
+    // auto 模式下订阅 /robot/mode 获取敌方颜色
+    if (enemy_color_mode_ == "auto") {
+        mode_sub_ = this->create_subscription<robot_interfaces::msg::Mode>(
+            "/robot/mode", 10,
+            std::bind(&ArmorDetectorNode::modeCallback, this, std::placeholders::_1));
+        RCLCPP_INFO(this->get_logger(), "Enemy color set to AUTO, waiting for mode from serial.");
+    }
+
     armors_pub_ = this->create_publisher<robot_interfaces::msg::Armors>("armor_detector/armors", rclcpp::SensorDataQoS());
 
     odom_frame_ = this->declare_parameter("target_frame", "odom");
@@ -156,6 +164,7 @@ CallbackReturn ArmorDetectorNode::on_cleanup(const rclcpp_lifecycle::State & /*s
     marker_pub_.reset();
     tf2_buffer_.reset();
     tf2_listener_.reset();
+    mode_sub_.reset();
 
     if (debug_) {
         destroyDebugPublishers();
@@ -270,7 +279,16 @@ std::unique_ptr<robot_auto_aim::Detector> ArmorDetectorNode::initDetector()
     };
 
     std::string enemy_color_ch = this->declare_parameter("enemy_color", "red");
-    robot_utils::EnemyColor enemy_color = (enemy_color_ch == "red") ? robot_utils::EnemyColor::RED : robot_utils::EnemyColor::BLUE;
+    enemy_color_mode_ = enemy_color_ch;
+    robot_utils::EnemyColor enemy_color;
+    if (enemy_color_ch == "red") {
+        enemy_color = robot_utils::EnemyColor::RED;
+    } else if (enemy_color_ch == "blue") {
+        enemy_color = robot_utils::EnemyColor::BLUE;
+    } else {
+        // "auto" 模式：默认 RED，等待串口数据更新
+        enemy_color = robot_utils::EnemyColor::RED;
+    }
     
     auto detector = std::make_unique<robot_auto_aim::Detector>(binary_thres, enemy_color, l_params, a_params);
 
@@ -295,6 +313,16 @@ std::unique_ptr<robot_auto_aim::Detector> ArmorDetectorNode::initDetector()
         std::bind(&ArmorDetectorNode::onSetParameters, this, std::placeholders::_1));
 
     return detector;
+}
+
+void ArmorDetectorNode::modeCallback(const robot_interfaces::msg::Mode::SharedPtr msg)
+{
+    auto new_color = (msg->mode == 1) ? robot_utils::EnemyColor::RED : robot_utils::EnemyColor::BLUE;
+    if (detector_ && detector_->detect_color != new_color) {
+        detector_->detect_color = new_color;
+        RCLCPP_INFO(this->get_logger(), "Enemy color switched to: %s",
+                     robot_utils::enemyColorToString(new_color).c_str());
+    }
 }
 
 std::vector<robot_auto_aim::Armor> ArmorDetectorNode::detectArmors(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg)

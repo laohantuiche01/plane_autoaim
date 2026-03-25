@@ -56,8 +56,8 @@ void ManagerNode::modeCallback(const robot_interfaces::msg::Mode::SharedPtr msg)
     std::thread([this, mode]() {
         RCLCPP_INFO(this->get_logger(), "Mode changed to: %d", mode);
 
-        if (mode == 1) {
-            // Activate nodes
+        if (mode == 0 || mode == 1) {
+            // Activate nodes (mode 0: enemy blue, mode 1: enemy red)
             updateNodeState(detector_name_, lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
             updateNodeState(solver_name_, lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
         } else {
