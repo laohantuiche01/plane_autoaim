@@ -49,7 +49,7 @@ public:
         aimData.success = aim.success;
         aimData.distance = 3.0;
         aimData.target_number = aim.target_number;
-        aimData.target_rate = 5;  //TODO
+        aimData.target_rate = 20;
         if (!serial.write(0x81, aimData)) {
             RCLCPP_FATAL_STREAM(get_logger(), "Sending data failed!");
             exit(-1);
