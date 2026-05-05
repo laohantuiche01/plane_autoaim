@@ -23,7 +23,7 @@ def get_default_robot_type():
         if result.returncode == 0:
             robot_type = result.stdout.strip()
             # 验证是否是有效的机型
-            valid_types = ['default', 'infantry_3', 'infantry_4', 'sentry', 'outpost']
+            valid_types = ['default', 'infantry_3', 'infantry_4', 'sentry', 'outpost', 'plane']
             if robot_type in valid_types:
                 return robot_type
             # 如果识别出的主机名不在有效列表中，尝试映射
@@ -32,6 +32,7 @@ def get_default_robot_type():
                 'infantry-4': 'infantry_4',
                 'sentry': 'sentry',
                 'outpost': 'outpost',
+                'plane': 'plane'
             }
             for key, value in hostname_to_type.items():
                 if key in robot_type.lower():
@@ -80,7 +81,7 @@ def launch_setup(context, *args, **kwargs):
         namespace='',
         package='rclcpp_components',
         executable='component_container_isolated',
-        prefix=['chrt -f 90 taskset -c 0,1,2,3'], # SCHED_FIFO priority 90 and CPU binding
+        prefix=['chrt -f 90 taskset -c 22,23,24,25,26,27,28,29,30,31'], # SCHED_FIFO priority 90 and CPU binding
         composable_node_descriptions=[
             ComposableNode(
                 package='hik_camera_driver',

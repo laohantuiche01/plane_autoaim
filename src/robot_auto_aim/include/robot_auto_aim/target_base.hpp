@@ -65,9 +65,9 @@ struct TargetParams {
 };
 
 struct GeometricParams {
-    double r = 0;
-    double l = 0;
-    double h = 0;
+    double r = 0.2;
+    double l = 0.0;
+    double h = 0.15;
     ArmorType even_armor_type = ArmorType::INVALID;
 };
 

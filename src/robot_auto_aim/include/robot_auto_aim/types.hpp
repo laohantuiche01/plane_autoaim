@@ -35,7 +35,7 @@ namespace robot_auto_aim {
 
 // Armor size, Unit: m
 constexpr double SMALL_ARMOR_WIDTH = 135.0 / 1000.0; // 135
-constexpr double SMALL_ARMOR_HEIGHT = 57.0 / 1000.0; // 55
+constexpr double SMALL_ARMOR_HEIGHT = 55.0 / 1000.0; // 55
 constexpr double LARGE_ARMOR_WIDTH = 225.0 / 1000.0;
 constexpr double LARGE_ARMOR_HEIGHT = 57.0 / 1000.0; // 55
 

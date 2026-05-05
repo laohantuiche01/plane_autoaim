@@ -1,0 +1,140 @@
+/**:
+  ros__parameters:
+    use_sim_time: false
+
+# Camera Driver (Hikrobot)
+hik_camera:
+  ros__parameters:
+    use_sensor_data_qos: true
+    exposure_time: 3000.0
+    gain: 0.0
+    frame_rate: 200.0
+    delay_ratio: 0.0
+    width: 1440
+    height: 1080
+    offset_x: 0
+    offset_y: 0
+    bit_depth: "Bits_8"
+    k: [3575.76810250962, 0.0, 707.6475466813226, 0.0, 3572.012857577182, 556.0187712487359, 0.0, 0.0, 1.0]
+    d: [-0.028108008372973205, 0.2198514350526474, -0.0014376812458268792, 3.5663092847590206e-05, 0.0]
+
+# Armor Detector
+armor_detector:
+  ros__parameters:
+    use_ba: true
+    target_frame: "odom"
+    debug: true
+    binary_thres: 170
+    enemy_color: "auto"
+    classifier_threshold: 0.8
+    ignore_classes: ["negative"]
+    use_pca: true
+
+    light:
+      min_ratio: 0.08
+      max_ratio: 0.4
+      max_angle: 40.0
+      color_diff_thresh: 25
+
+    armor:
+      min_light_ratio: 0.6
+      min_small_center_distance: 0.8
+      max_small_center_distance: 3.2
+      min_large_center_distance: 3.2
+      max_large_center_distance: 5.0
+      max_angle: 45.0
+
+    armor_detector:
+      result_img:
+        jpeg_quality: 50
+      binary_img:
+        jpeg_quality: 50
+
+# Armor Solver
+armor_solver:
+  ros__parameters:
+    debug: false
+    odom_frame: "odom"
+    max_lost_duration: 1.0
+    min_detect_count: 5
+    ukf_alpha: 0.001
+    ukf_beta: 2.0
+    ukf_kappa: 0.0
+    bullet_speed: 25.0
+    timer_frequency: 500.0
+
+    robot:
+      sigma_pos: 0.1
+      sigma_yaw: 0.3
+      q_geo: 0.0001
+      r_range: 0.01
+      r_range_k: 0.5
+      r_angle: 0.0003
+      r_yaw: 0.05
+      r_yaw_adaptive_factor: 50.0
+      r_yaw_viewing_k: 10.0
+      adaptive_tracking: false
+      q_alpha: 0.1
+      omega_freeze_thresh: 0.2
+
+    outpost:
+      sigma_pos: 0.03
+      sigma_yaw: 0.3
+      q_geo: 0.0001
+      r_range: 0.01
+      r_range_k: 0.5
+      r_angle: 0.0003
+      r_yaw: 0.05
+      r_yaw_adaptive_factor: 50.0
+      r_yaw_viewing_k: 10.0
+      adaptive_tracking: false
+      q_alpha: 0.1
+      omega_freeze_thresh: 0.8
+
+    trajectory:
+      hit_delay_offset: 0.00
+      aim_delay_offset: 0.10
+      num_points: 11
+      dt: 0.002
+      omega_low: 3.0
+      omega_high: 10.0
+      switch_concentration: 10.0
+
+# Ballistics Node
+ballistics_node:
+  ros__parameters:
+    imshow_ballistics: true
+    bullet_speed: 14.5
+    gimbal_frame: "gimbal_link"
+    true_angle_tolerance: 0.1
+    aim_angle_tolerance: 0.1
+    hit_yaw_offset: 0.0
+    hit_pitch_offset: 0.0034
+    aim_yaw_offset: -0.005
+    aim_pitch_offset: 0.005
+    enable_sg_yaw: false
+    sg_yaw_order: 4
+    enable_sg_pitch: false
+    sg_pitch_order: 2
+    tolerance_coefficient: 2.0
+    fire_delay: 0.05
+    use_analytical_w_yaw: false
+    analytical_w_yaw_alpha: 0.7
+
+# Manager
+robot_manager:
+  ros__parameters:
+    detector_name: "armor_detector"
+    solver_name: "armor_solver"
+
+# Communication
+robot_communication:
+  ros__parameters:
+    serial_name: "/dev/ttyRobotPlane"
+    camera_x: 0.02
+    camera_y: 0.0
+    camera_z: -0.03
+    camera_roll: 0.0
+    camera_pitch: 7.0
+    #camera_pitch: 0.0
+    camera_yaw: 0.0

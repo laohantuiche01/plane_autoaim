@@ -17,7 +17,8 @@
 #include "robot_message.h"
 #include "robot_utils/math_utils.hpp"
 
-class RobotCommunication : public rclcpp::Node {
+class RobotCommunication : public rclcpp::Node
+{
 private:
     using TransformStamped = geometry_msgs::msg::TransformStamped;
     robot::RobotSerial serial;
@@ -40,26 +41,31 @@ private:
 public:
     RobotCommunication();
 
-    void aimCallback(const robot_interfaces::msg::Aim &aim) {
+    void aimCallback(const robot_interfaces::msg::Aim& aim)
+    {
         aim_data_t aimData{};
         aimData.pitch = robot_utils::rad_to_deg(aim.pitch);
         aimData.yaw = robot_utils::rad_to_deg(aim.yaw);
-        aimData.w_pitch =  robot_utils::rad_to_deg(aim.w_pitch);
+        aimData.w_pitch = robot_utils::rad_to_deg(aim.w_pitch);
         aimData.w_yaw = robot_utils::rad_to_deg(aim.w_yaw);
         aimData.success = aim.success;
         aimData.distance = 3.0;
         aimData.target_number = aim.target_number;
         aimData.target_rate = 20;
-        if (!serial.write(0x81, aimData)) {
+
+        //TODO
+        if (!serial.write(0x81, aimData))
+        {
             RCLCPP_FATAL_STREAM(get_logger(), "Sending data failed!");
             exit(-1);
         }
     }
 };
 
-inline RobotCommunication::RobotCommunication() : Node("robot_communication") {
+inline RobotCommunication::RobotCommunication() : Node("robot_communication")
+{
     declare_parameter("serial_name", "/dev/ttyACM0");
-    
+
     // Declare Camera TF Parameters
     camera_x_ = declare_parameter("camera_x", 0.0);
     camera_y_ = declare_parameter("camera_y", 0.0);
@@ -69,10 +75,12 @@ inline RobotCommunication::RobotCommunication() : Node("robot_communication") {
     camera_yaw_ = declare_parameter("camera_yaw", 0.0);
 
     param_callback_handle_ = this->add_on_set_parameters_callback(
-        [this](const std::vector<rclcpp::Parameter> &parameters) {
+        [this](const std::vector<rclcpp::Parameter>& parameters)
+        {
             rcl_interfaces::msg::SetParametersResult result;
             result.successful = true;
-            for (const auto &param : parameters) {
+            for (const auto& param : parameters)
+            {
                 if (param.get_name() == "camera_x") camera_x_ = param.as_double();
                 else if (param.get_name() == "camera_y") camera_y_ = param.as_double();
                 else if (param.get_name() == "camera_z") camera_z_ = param.as_double();
@@ -91,16 +99,87 @@ inline RobotCommunication::RobotCommunication() : Node("robot_communication") {
     gimbalTransformPublisher = create_publisher<TransformStamped>("/robot/gimbal_transform", 1);
     tfBroadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
-    try {
+    try
+    {
         serial = std::move(robot::RobotSerial(get_parameter("serial_name").as_string(), 4000000));
-    } catch (const sp::SerialException &) {
-        RCLCPP_FATAL_STREAM(get_logger(),
-                            "Open cdc device Failed! Please check out robot connection or permission!");
-        exit(-1);
     }
+    catch (const sp::SerialException&)
+    {
+        RCLCPP_FATAL_STREAM(get_logger(),
+                            "Open cdc device Failed! Using simulated data!！！！！！！");
+        //debug的内容 =========================================================================================
+        //TODO
+        exit(-1);
+
+        std::thread t([this]()
+        {
+            while (true)
+            {
+                auto current_time = now();
+
+                TransformStamped gimbalInWorld;
+                gimbalInWorld.header.stamp = current_time;
+                gimbalInWorld.header.frame_id = "odom";
+                gimbalInWorld.child_frame_id = "gimbal_link"; // Changed from "gimbal" to match solver
+                tf2::Quaternion quaternion;
+                quaternion.setRPY(0,
+                                  0,
+                                  0);
+                gimbalInWorld.transform.rotation.x = quaternion.x();
+                gimbalInWorld.transform.rotation.y = quaternion.y();
+                gimbalInWorld.transform.rotation.z = quaternion.z();
+                gimbalInWorld.transform.rotation.w = quaternion.w();
+                tfBroadcaster->sendTransform(gimbalInWorld);
+                gimbalTransformPublisher->publish(gimbalInWorld);
+
+                // Publish dynamic TF from gimbal_link to camera_optical_frame
+                TransformStamped camera_tf;
+                camera_tf.header.stamp = current_time;
+                camera_tf.header.frame_id = "gimbal_link";
+                camera_tf.child_frame_id = "camera_optical_frame";
+                camera_tf.transform.translation.x = camera_x_;
+                camera_tf.transform.translation.y = camera_y_;
+                camera_tf.transform.translation.z = camera_z_;
+
+                tf2::Quaternion q_param, q_opt, q_total;
+                q_param.setRPY(robot_utils::deg_to_rad(camera_roll_),
+                               robot_utils::deg_to_rad(camera_pitch_),
+                               robot_utils::deg_to_rad(camera_yaw_));
+                // Transform from ROS standard (X forward) to OpenCV standard (Z forward)
+                q_opt.setRPY(-M_PI / 2, 0.0, -M_PI / 2);
+                q_total = q_param * q_opt;
+
+                camera_tf.transform.rotation.x = q_total.x();
+                camera_tf.transform.rotation.y = q_total.y();
+                camera_tf.transform.rotation.z = q_total.z();
+                camera_tf.transform.rotation.w = q_total.w();
+                tfBroadcaster->sendTransform(camera_tf);
+
+                robot_interfaces::msg::Gimbal gimbal;
+                gimbal.header.frame_id = "map";
+                gimbal.header.stamp = current_time;
+                gimbal.roll = 0;
+                gimbal.pitch = 0;
+                gimbal.yaw = 0;
+                gimbalPublisher->publish(gimbal);
+
+                robot_interfaces::msg::Mode mode;
+                mode.mode = 1;
+                modePublisher->publish(mode);
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        });
+        if (t.joinable())
+        {
+            t.join();
+        }
+    }
+    //debug的内容 =========================================================================================
     RCLCPP_INFO_STREAM(get_logger(), "Open cdc device success!");
 
-    serial.registerCallback(0x14, [this](const gimbal_and_config_data_t &gimbalAndConfigData) {
+    serial.registerCallback(0x14, [this](const gimbal_and_config_data_t& gimbalAndConfigData)
+    {
         auto current_time = now();
 
         TransformStamped gimbalInWorld;
@@ -132,7 +211,7 @@ inline RobotCommunication::RobotCommunication() : Node("robot_communication") {
                        robot_utils::deg_to_rad(camera_pitch_),
                        robot_utils::deg_to_rad(camera_yaw_));
         // Transform from ROS standard (X forward) to OpenCV standard (Z forward)
-        q_opt.setRPY(-M_PI/2, 0.0, -M_PI/2);
+        q_opt.setRPY(-M_PI / 2, 0.0, -M_PI / 2);
         q_total = q_param * q_opt;
 
         camera_tf.transform.rotation.x = q_total.x();

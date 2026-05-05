@@ -14,7 +14,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake_modules)
 find_package(ament_cmake_auto REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(TBB REQUIRED COMPONENTS tbb)
-find_package(G2O REQUIRED)
+find_package(g2o REQUIRED)
 find_package(fmt REQUIRED)
 find_package(Sophus REQUIRED)
 

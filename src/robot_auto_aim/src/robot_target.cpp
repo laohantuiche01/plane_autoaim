@@ -204,6 +204,7 @@ namespace robot_auto_aim {
         bool any_success = false;
 
         if (confirmation_state_ == ConfirmationState::CONFIRMING) {
+            int old_armor_id_0 = last_armor_ids_[0];
             int current_best_id = 0;
             for (int k = 0; k < 2; ++k) {
                 const auto x = ukfs_[k].getState();
@@ -238,7 +239,7 @@ namespace robot_auto_aim {
                 last_armor_ids_[k] = best_id;
             }
 
-            if (current_best_id != last_armor_ids_[0]) {
+            if (current_best_id != old_armor_id_0) {
                 armor_switch_count_++;
             }
 

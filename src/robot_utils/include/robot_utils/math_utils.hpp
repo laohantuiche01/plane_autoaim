@@ -6,6 +6,7 @@
 
 #include <opencv2/core.hpp>
 #include <Eigen/Dense>
+#include <opencv2/calib3d.hpp>
 #include <tf2/LinearMath/Matrix3x3.h>
 
 namespace robot_utils {
@@ -96,6 +97,55 @@ inline double computeViewingAngle(const Eigen::Vector3d& position,
                                    const Eigen::Quaterniond& orientation) {
     Eigen::Vector3d normal = orientation.toRotationMatrix().col(0);
     return std::acos(std::clamp(std::abs(normal.dot(position.normalized())), 0.0, 1.0));
+}
+
+/**
+ * @brief Reproject 3D trajectory points from odom frame to 2D image plane.
+ *
+ * Transforms odom-frame 3D points into camera_optical_frame via
+ * p_cam = R_camera_odom * p_odom + t_camera_odom, filters points
+ * behind the camera (z <= 0), then projects onto the image using
+ * camera intrinsics and distortion model (radial + tangential).
+ *
+ * Projection model:
+ *   p_cam  = R · p_odom + t                      // Euclidean transform
+ *   u_norm = p_cam.head<2>() / p_cam.z()          // perspective division
+ *   u_dist = u_norm + δ_radial(u_norm) + δ_tang(u_norm)   // OpenCV distortion
+ *
+ * @param points_odom       3D trajectory points in odom frame
+ * @param R_camera_odom     3x3 rotation from odom to camera_optical_frame
+ * @param t_camera_odom     3x1 translation from odom to camera_optical_frame
+ * @param camera_matrix     3x3 intrinsic matrix K = [fx, 0, cx; 0, fy, cy; 0, 0, 1]
+ * @param dist_coeffs       Distortion coefficients [k1, k2, p1, p2, k3, ...]
+ * @return 2D image points in pixel coordinates. Points with z <= 0 after transform
+ *         are filtered — the output vector may be shorter than the input.
+ */
+inline std::vector<cv::Point2f> projectTrajectoryToImage(
+    const std::vector<Eigen::Vector3d>& points_odom,
+    const Eigen::Matrix3d& R_camera_odom,
+    const Eigen::Vector3d& t_camera_odom,
+    const cv::Mat& camera_matrix,
+    const cv::Mat& dist_coeffs)
+{
+    // Step 1: Transform all points from odom to camera_optical_frame
+    std::vector<cv::Point3f> cam_points;
+    for (const auto& pt : points_odom) {
+        Eigen::Vector3d p_cam = R_camera_odom * pt + t_camera_odom;
+        if (p_cam.z() > 0.0) {
+            cam_points.emplace_back(p_cam.x(), p_cam.y(), p_cam.z());
+        }
+    }
+
+    if (cam_points.empty()) return {};
+
+    // Step 2: Perspective projection + distortion via OpenCV
+    // rvec=tvec=zero since points are already in the camera frame
+    std::vector<cv::Point2f> image_points;
+    cv::Mat rvec = cv::Mat::zeros(3, 1, CV_64F);
+    cv::Mat tvec = cv::Mat::zeros(3, 1, CV_64F);
+    cv::projectPoints(cam_points, rvec, tvec, camera_matrix, dist_coeffs, image_points);
+
+    return image_points;
 }
 
 }  // namespace robot_utils

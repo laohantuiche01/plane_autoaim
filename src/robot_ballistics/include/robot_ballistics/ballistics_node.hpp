@@ -16,8 +16,14 @@
 #include "robot_interfaces/msg/ballistics_debug.hpp"
 #include "visualization_msgs/msg/marker.hpp"
 #include "robot_ballistics/ballistics_calculator.hpp"
+#include <opencv2/core.hpp>
+
 #include "robot_utils/savitzky_golay.hpp"
 #include "robot_utils/math_utils.hpp"
+
+#include "sensor_msgs/msg/camera_info.hpp"
+#include "sensor_msgs/msg/image.hpp"
+#include <cv_bridge/cv_bridge.h>
 
 namespace robot_ballistics {
 
@@ -37,6 +43,15 @@ private:
     rclcpp::Publisher<robot_interfaces::msg::Aim>::SharedPtr aim_pub_;
     rclcpp::Publisher<robot_interfaces::msg::BallisticsDebug>::SharedPtr debug_pub_;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
+
+    // Debug image projection (ballistics trajectory → 2D overlay)
+    bool imshow_ballistics_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr debug_img_pub_;
+    sensor_msgs::msg::Image::SharedPtr latest_image_;
+    cv::Mat camera_matrix_;
+    cv::Mat dist_coeffs_;
 
     // Parameters
     double bullet_speed_;
