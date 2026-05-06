@@ -30,7 +30,6 @@ namespace robot_ballistics
         imshow_ballistics_ = this->declare_parameter("imshow_ballistics", false);
 
 
-
         tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
         tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
@@ -42,17 +41,22 @@ namespace robot_ballistics
         debug_pub_ = this->create_publisher<robot_interfaces::msg::BallisticsDebug>("/ballistics/debug", 10);
         marker_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("/ballistics/trajectory_marker", 10);
 
+        //debug=====================😁
+        debug_pub_array_ = this->create_publisher<std_msgs::msg::Float64>("/ballistics/data", 10);
+
         // Debug: subscribe to image and camera info for 2D trajectory overlay
-        if (imshow_ballistics_) {
+        if (imshow_ballistics_)
+        {
             image_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
                 "image_raw", rclcpp::SensorDataQoS(),
                 [this](sensor_msgs::msg::Image::SharedPtr img) { latest_image_ = img; });
 
             cam_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
                 "/image_raw_info", rclcpp::SensorDataQoS(),
-                [this](sensor_msgs::msg::CameraInfo::SharedPtr info) {
+                [this](sensor_msgs::msg::CameraInfo::SharedPtr info)
+                {
                     camera_matrix_ = cv::Mat(3, 3, CV_64F, info->k.data()).clone();
-                    dist_coeffs_  = cv::Mat(1, 5, CV_64F, info->d.data()).clone();
+                    dist_coeffs_ = cv::Mat(1, 5, CV_64F, info->d.data()).clone();
                     cam_info_sub_.reset();
                 });
 
@@ -153,6 +157,10 @@ namespace robot_ballistics
 
         int center_idx = num_points / 2;
 
+
+        //debug====================================================
+        std_msgs::msg::Float64 yaw_debug_msg;
+
         for (size_t i = 0; i < num_points; ++i)
         {
             process_point(msg->true_trajectory[i], true_yaw[i], true_pitch[i]);
@@ -162,7 +170,12 @@ namespace robot_ballistics
             process_point(msg->aim_trajectory[i], aim_yaw[i], aim_pitch[i]);
             aim_yaw[i] += aim_yaw_offset_;
             aim_pitch[i] += aim_pitch_offset_;
+            if (i == 5)
+            {
+                yaw_debug_msg.data = aim_yaw[i];
+            }
         }
+        debug_pub_array_->publish(yaw_debug_msg);
 
         std::vector<double> times(num_points);
         for (size_t i = 0; i < num_points; ++i)
@@ -367,6 +380,9 @@ namespace robot_ballistics
         double target_dist = std::sqrt(tdx * tdx + tdy * tdy + tdz * tdz);
         // 绘制到目标距离的 1.2 倍，留少量余量便于可视化
         double max_time = (bullet_speed_ > 1e-3) ? (target_dist * 1.2 / bullet_speed_) : 2.0;
+        double hit_time = (bullet_speed_ > 1e-3) ? (target_dist * 1.0 / bullet_speed_) : 2.0;
+
+        Eigen::Vector3d hit_point;
 
         for (double t = 0; t <= max_time; t += 0.02)
         {
@@ -375,20 +391,31 @@ namespace robot_ballistics
             p.y = gy + vy * t;
             p.z = gz + vz * t - 0.5 * 9.8 * t * t;
             marker.points.push_back(p);
+            if (std::abs(hit_time - t) <= 0.01)
+            {
+                hit_point.x() = p.x;
+                hit_point.y() = p.y;
+                hit_point.z() = p.z;
+            }
         }
 
         // --- 2D trajectory overlay on debug image ---
-        if (imshow_ballistics_ && latest_image_ && !camera_matrix_.empty()) {
+        if (imshow_ballistics_ && latest_image_ && !camera_matrix_.empty())
+        {
             geometry_msgs::msg::TransformStamped tf_camera;
-            try {
+            try
+            {
                 tf_camera = tf_buffer_->lookupTransform(
                     "camera_optical_frame", "odom", msg->header.stamp,
                     rclcpp::Duration::from_seconds(0.01));
-            } catch (const tf2::TransformException&) {
+            }
+            catch (const tf2::TransformException&)
+            {
                 // skip — can't project without TF
             }
 
-            if (!tf_camera.child_frame_id.empty()) {
+            if (!tf_camera.child_frame_id.empty())
+            {
                 Eigen::Quaterniond q(
                     tf_camera.transform.rotation.w,
                     tf_camera.transform.rotation.x,
@@ -401,17 +428,24 @@ namespace robot_ballistics
                     tf_camera.transform.translation.z);
 
                 std::vector<Eigen::Vector3d> pts_3d;
-                for (const auto& p : marker.points) {
+                for (const auto& p : marker.points)
+                {
                     pts_3d.emplace_back(p.x, p.y, p.z);
                 }
 
                 auto pts_2d = robot_utils::projectTrajectoryToImage(
                     pts_3d, R, t, camera_matrix_, dist_coeffs_);
 
-                if (pts_2d.size() >= 2) {
+                auto hit_point_img = robot_utils::projectTrajectoryToImage(
+                    hit_point, R, t, camera_matrix_, dist_coeffs_);
+
+                if (pts_2d.size() >= 2)
+                {
                     cv::Mat img = cv_bridge::toCvCopy(latest_image_, "bgr8")->image;
                     cv::Scalar color = success ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 255, 255);
-                    for (size_t i = 1; i < pts_2d.size(); ++i) {
+                    cv::circle(img, hit_point_img, 10, cv::Scalar(0, 0, 255), -1);
+                    for (size_t i = 1; i < pts_2d.size(); ++i)
+                    {
                         cv::line(img, pts_2d[i - 1], pts_2d[i], color, 2);
                     }
                     debug_img_pub_->publish(

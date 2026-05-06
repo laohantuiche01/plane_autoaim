@@ -51,7 +51,7 @@ public:
         aimData.success = aim.success;
         aimData.distance = 3.0;
         aimData.target_number = aim.target_number;
-        aimData.target_rate = 20;
+        aimData.target_rate = 24;
 
         //TODO
         if (!serial.write(0x81, aimData))

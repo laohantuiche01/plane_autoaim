@@ -15,15 +15,15 @@ hik_camera:
     offset_x: 0
     offset_y: 0
     bit_depth: "Bits_8"
-    k: [3575.76810250962, 0.0, 707.6475466813226, 0.0, 3572.012857577182, 556.0187712487359, 0.0, 0.0, 1.0]
-    d: [-0.028108008372973205, 0.2198514350526474, -0.0014376812458268792, 3.5663092847590206e-05, 0.0]
+    k: [3582.668235171106, 0.0, 711.101579725234, 0.0, 3580.2650149827564, 551.612936930626, 0.0, 0.0, 1.0]
+    d: [-0.00846880527444653, 0.02698299148343042, -0.0014150330455716612, 0.0006923247624969434, 0.0]
 
 # Armor Detector
 armor_detector:
   ros__parameters:
     use_ba: true
     target_frame: "odom"
-    debug: true
+    debug: false
     binary_thres: 170
     enemy_color: "auto"
     classifier_threshold: 0.8
@@ -95,7 +95,7 @@ armor_solver:
       hit_delay_offset: 0.00
       aim_delay_offset: 0.10
       num_points: 11
-      dt: 0.002
+      dt: 0.001
       omega_low: 3.0
       omega_high: 10.0
       switch_concentration: 10.0
@@ -104,20 +104,20 @@ armor_solver:
 ballistics_node:
   ros__parameters:
     imshow_ballistics: true
-    bullet_speed: 14.5
+    bullet_speed: 14.0
     gimbal_frame: "gimbal_link"
     true_angle_tolerance: 0.1
     aim_angle_tolerance: 0.1
     hit_yaw_offset: 0.0
     hit_pitch_offset: 0.0034
     aim_yaw_offset: -0.005
-    aim_pitch_offset: 0.005
+    aim_pitch_offset: -0.02
     enable_sg_yaw: false
     sg_yaw_order: 4
     enable_sg_pitch: false
     sg_pitch_order: 2
-    tolerance_coefficient: 2.0
-    fire_delay: 0.05
+    tolerance_coefficient: 0.8
+    fire_delay: 0.2
     use_analytical_w_yaw: false
     analytical_w_yaw_alpha: 0.7
 

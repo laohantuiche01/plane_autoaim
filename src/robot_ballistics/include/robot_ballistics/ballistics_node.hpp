@@ -10,6 +10,7 @@
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+#include "std_msgs/msg/float64.hpp"
 
 #include "robot_interfaces/msg/target_trajectory.hpp"
 #include "robot_interfaces/msg/aim.hpp"
@@ -43,6 +44,9 @@ private:
     rclcpp::Publisher<robot_interfaces::msg::Aim>::SharedPtr aim_pub_;
     rclcpp::Publisher<robot_interfaces::msg::BallisticsDebug>::SharedPtr debug_pub_;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
+
+    //debug发布器
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr debug_pub_array_;
 
     // Debug image projection (ballistics trajectory → 2D overlay)
     bool imshow_ballistics_;
