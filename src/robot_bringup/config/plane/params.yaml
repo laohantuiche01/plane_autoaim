@@ -103,20 +103,20 @@ armor_solver:
 # Ballistics Node
 ballistics_node:
   ros__parameters:
-    imshow_ballistics: true
-    bullet_speed: 14.0
+    imshow_ballistics: false
+    bullet_speed: 14.9
     gimbal_frame: "gimbal_link"
     true_angle_tolerance: 0.1
     aim_angle_tolerance: 0.1
-    hit_yaw_offset: 0.0
-    hit_pitch_offset: 0.0034
-    aim_yaw_offset: -0.005
+    hit_yaw_offset: -0.04
+    hit_pitch_offset: 0.0
+    aim_yaw_offset: 0.0
     aim_pitch_offset: -0.02
     enable_sg_yaw: false
     sg_yaw_order: 4
     enable_sg_pitch: false
     sg_pitch_order: 2
-    tolerance_coefficient: 0.8
+    tolerance_coefficient: 2.5
     fire_delay: 0.2
     use_analytical_w_yaw: false
     analytical_w_yaw_alpha: 0.7
